@@ -232,4 +232,4 @@ CHANGES IN 0.3
 --------------
 - An installer: it finds your own copy of the PC version, adds the mod to it and builds the game.
 - The mod keeps itself up to date from its GitHub page when the game starts.
-- 0.3.1: the first automatic update (a test that updates reach everyone).
+- 0.3.1 and 0.3.2: the first automatic updates (tests that updates reach everyone).

@@ -48,7 +48,7 @@
 -- Anything read from memory is checked before it is spoken; a check that fails stays silent.
 
 ------------------------------------------------------------------------------ settings ------
-MOD_VERSION = "0.3.1"
+MOD_VERSION = "0.3.2"
 MENU_DEBUG = false   -- true: log the menu buffer and look for the yes/no box in snapshots
 WALK_DEBUG = false   -- true: log auto walk's route and position (in the speech log)
 KEYS = {

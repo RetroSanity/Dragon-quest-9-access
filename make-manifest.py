@@ -14,7 +14,8 @@ for dirpath, dirs, files in os.walk(root):
     for f in sorted(files):
         p = os.path.join(dirpath, f)
         rel = os.path.relpath(p, root).replace(os.sep, '/')
-        if rel == 'manifest.txt':
+        # (the NVDA library is in use while the game runs, so it is not updated; the installer puts it in)
+        if rel in ('manifest.txt', 'nvdaControllerClient64.dll'):
             continue
         lines.append(f'file {os.path.getsize(p)} {rel}')
 open(os.path.join(root, 'manifest.txt'), 'w', newline='\n').write('\n'.join(lines) + '\n')

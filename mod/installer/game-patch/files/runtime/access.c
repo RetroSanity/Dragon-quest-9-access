@@ -405,12 +405,26 @@ static DWORD WINAPI update_thread(LPVOID u) {
         if (!http_get(url, &data, &n, 64 << 20) || (long long)n != size) { free(data); failed++; continue; }
         snprintf(dst, sizeof dst, "%s%s", g_dir, name);
         for (char* c = dst + strlen(g_dir); *c; c++) if (*c == '/') { *c = 0; CreateDirectoryA(dst, NULL); *c = '\\'; }
+        /* the same as the copy here already: nothing to do (and a file in use is not touched) */
+        FILE* cur = fopen(dst, "rb");
+        if (cur) {
+            int same = 1; size_t i = 0; int ch;
+            while ((ch = fgetc(cur)) != EOF) { if (i >= n || (unsigned char)data[i] != ch) { same = 0; break; } i++; }
+            fclose(cur);
+            if (same && i == n) { free(data); continue; }
+        }
         snprintf(tmp, sizeof tmp, "%s.tmp", dst);
         FILE* o = fopen(tmp, "wb");
         int ok = o && fwrite(data, 1, n, o) == n;
         if (o) fclose(o);
         free(data);
-        if (ok && MoveFileExA(tmp, dst, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) got++;
+        if (ok && !MoveFileExA(tmp, dst, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            /* in use (a library the game has loaded): move it aside, the new one takes its place next time */
+            char old[940];
+            snprintf(old, sizeof old, "%s.old", dst);
+            ok = MoveFileExA(dst, old, MOVEFILE_REPLACE_EXISTING) && MoveFileExA(tmp, dst, MOVEFILE_REPLACE_EXISTING);
+        }
+        if (ok) got++;
         else { DeleteFileA(tmp); failed++; }
     }
     free(man);
