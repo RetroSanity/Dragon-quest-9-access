@@ -104,6 +104,7 @@ R          Repeat the last thing said.
 Ctrl       Press and let go of Ctrl on its own to stop speaking.
 Shift + M  Mark this spot so you can find it again later (category Marks).
 T          Turn the "blocked" alert on or off.
+F          The 3D beacon to the thing you picked, to walk there yourself. F again stops it.
 C          Save a snapshot of what the game is showing to dq9-access-log.txt.
 K          Hear the list of keys.
 
@@ -112,7 +113,8 @@ Hold the left trigger (LT), then:
   D-pad right / left   Next / previous category of the nearby list.
   D-pad down / up      Next / previous thing in that category.
   Press in the left stick (L3)   Walk to the thing you picked. Press it again to stop.
-  Press in the right stick (R3)  Your gold.
+  Press in the right stick (R3)  The 3D beacon to the thing you picked (your gold when
+                                 nothing is picked). Press it again to stop the beacon.
 Press in the right stick (R3) without the trigger: the route to the thing you picked, or your
 gold when nothing is picked, or everyone's health and magic in a battle.
 
@@ -261,6 +263,16 @@ CHANGES IN 0.4
   so a door that opens later in the story, or one you have unlocked, is no longer called locked.
   A door with a keyhole also says which key opens it ("opens with the Magic Key").
   Auto walk to a door that will not open yet tells you so instead of walking there.
+- 3D beacon, to walk somewhere yourself (left trigger and press in the right stick, or F; the
+  same again stops it): pick something on the list and follow a knock placed all round you on
+  headphones. The knock comes from where the next turn of the way is: faster the nearer it is,
+  lower when it is behind you, with a second higher knock when you are heading straight for it.
+  "Ahead" is up on the screen, the way up on the D-pad walks you. A chime at each turn of the way
+  and when you arrive. If you wander off the way, it is worked out again from where you are.
+  Uses OpenAL Soft (openal_soft.dll, LGPL, licence in openal-licence) with HRTF for headphones.
+- Auto walk beeps while it walks you: faster the nearer you are (along the way), and a chime when
+  you arrive.
+  The beacon and the beep need the new game part of the mod: run Install DQ9 Access.bat once.
 - The object list names every thing from the game's own words for it, all through the game:
   signs and what they say ("sign: East of here lies Stornway"), statues, gravestones, books,
   mirrors, beds, things to pick up ("horse manure, to pick up"), lifts and so on, even before you

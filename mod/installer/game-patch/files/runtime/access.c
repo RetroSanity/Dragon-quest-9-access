@@ -251,6 +251,11 @@ static const char* script_path(void) {
     return p;
 }
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+#include "access_sound.h"
+
 /* The script is loaded again whenever its file changes (a new version of the mod
  * takes over at once, without closing the game; the script reads its saved places
  * again as it starts). */
@@ -285,7 +290,8 @@ static void load_script(void) {
     static const luaL_Reg emu[] = { { "frameadvance", emu_advance }, { "framecount", emu_framecount }, { "yield", emu_advance }, { NULL, NULL } };
     static const luaL_Reg gi[] = { { "getromname", gi_romname }, { "getromhash", gi_hash }, { NULL, NULL } };
     reg("mainmemory", mm); reg("memory", mem); reg("joypad", jp); reg("input", in); reg("speech", sp);
-    reg("console", con); reg("event", ev); reg("emu", emu); reg("gameinfo", gi);
+    static const luaL_Reg snd[] = { { "ready", snd_ready }, { "play", snd_play }, { NULL, NULL } };
+    reg("console", con); reg("event", ev); reg("emu", emu); reg("gameinfo", gi); reg("sound", snd);
     lua_pushboolean(L, 1); lua_setglobal(L, "DQIX_PC");                /* the script can tell it is the PC version */
     lua_pushstring(L, g_dir); lua_setglobal(L, "ACCESS_DIR");          /* the mod's folder, for its other files */
     g_co = lua_newthread(L);
@@ -310,7 +316,7 @@ static void load_script(void) {
  * loaded as usual (its file changed). An update that also changes the game
  * (a newer "patch") is said: the installer has to build the game again.
  * No update: a file called no-auto-update.txt in the mod's folder. */
-#define ACCESS_PATCH 2
+#define ACCESS_PATCH 3
 #define UPDATE_HOST L"raw.githubusercontent.com"
 #define UPDATE_REPO "RetroSanity/Dragon-quest-9-access/main"
 static volatile int g_upd_done;                 /* 1: the thread has finished (g_upd_msg: what to say) */

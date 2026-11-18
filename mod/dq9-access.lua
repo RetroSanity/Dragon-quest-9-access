@@ -54,7 +54,7 @@ WALK_DEBUG = false   -- true: log auto walk's route and position (in the speech 
 KEYS = {
 	repeat_last = "R", stop = "", where = "W", party = "H", gold = "G", info = "I",
 	options = "O", next_thing = "N", prev_thing = "B", directions = "D", mark = "M", mp = "M",
-	alerts = "T", capture = "C", help = "K", equipment = "U", walk = "J", stats = "L", category = "V", route = "P",
+	alerts = "T", capture = "C", help = "K", equipment = "U", walk = "J", stats = "L", category = "V", route = "P", beacon = "F",
 }
 SAY_POSITION_IN_MENUS = true   -- add "2 of 6" after a menu option
 ALERTS_ON = true               -- wall bumps
@@ -4067,6 +4067,7 @@ end
 local walk = nil
 local function stop_walk(msg)
 	walk = nil
+	if msg and (msg:find("^Arrived") or msg:find("^In front of")) and sound then pcall(sound.play, "chime", 0, 0, -0.5, 0.8) end
 	if msg then say(msg, true) end
 end
 dq9_debug = function() return walk end
@@ -6124,6 +6125,7 @@ local function handle_pad_combos(k)
 	-- is picked, or with the left trigger held), or health and magic in a battle
 	if pad_edge(k, R3_NAMES) then
 		if in_battle() then say_party()
+		elseif lt_held and (BEACON or (sel_item and sel_item.code == map_code())) then beacon_toggle()
 		elseif not lt_held and sel_item and sel_item.code == map_code() then route_request()
 		else say_gold() end
 	end
@@ -6142,7 +6144,7 @@ end
 -- as walking there, but you walk it yourself. "Up" and "left" are as on screen right now.
 route = nil
 counter_route = false
-function route_request()
+function route_request(beacon)
 	local it = sel_item
 	if not it then say("Pick something on the list first.") return end
 	if it.code and it.code ~= map_code() then say("Pick something here first.") return end
@@ -6169,11 +6171,22 @@ function route_request()
 		if ap then gx, gz, counter_route = ap.x, ap.z, true else counter_route = false end
 	end
 	if math.sqrt((gx - px) ^ 2 + (gz - pz) ^ 2) < 1.2 then
+		if beacon then beacon_stop() end
 		say(it.label .. " is " .. directions_to(it.x, it.z) .. ".", true)
 		return
 	end
 	local avoid = avoid_list(it.x, it.z, px, pz)
 	nv.py = select(2, player_pos())
+	if beacon then
+		local ok = sound and select(1, pcall(sound.ready)) and sound.ready()
+		if not ok then
+			say(sound and "No 3D sound: the file openal_soft.dll is missing from the DQ9 access folder." or
+				"The beacon needs the new game part of the mod: run Install DQ9 Access.bat once.", true)
+			return
+		end
+		beacon_start(it, gx, gz, nv, avoid, (it.obj or it.rot) and counter_route or nil)
+		return
+	end
 	route = { it = it, sx = px, sz = pz, gx = gx, gz = gz, start = frame, counter = (it.obj or it.rot) and counter_route or nil,
 		co = coroutine.create(function()
 			local p, rem = plan_path(nv, px, py, pz, gx, gz, it.y0 and (it.y0 + 1) or nil, 0.45, true, 20000, avoid)
@@ -6265,14 +6278,140 @@ function route_step()
 	say("Route to " .. label .. ": " .. table.concat(words, ", then ") .. (tail and (", " .. tail) or more) .. ".", true)
 end
 
+------------------------------------------------------------------------------ beacon --------
+-- The 3D beacon (left trigger + right stick, or F): walk there yourself, following a knock placed
+-- all round you on headphones where the next turn of the way is. Faster the nearer that turn is;
+-- lower when it is behind you; a second, higher knock with it when you are heading straight for
+-- it; a chime at each turn and on arriving. "Ahead" is up on the screen, the way the D-pad walks
+-- you. The way is worked out again when you wander off it.
+BEACON = nil
+function beacon_stop(msg)
+	BEACON = nil
+	if msg then say(msg, true) end
+end
+function beacon_plan(b, nv, px, py, pz)
+	local gx, gz, gy, avoid = b.gx, b.gz, b.gy, b.avoid
+	b.co = coroutine.create(function()
+		local p, rem = plan_path(nv, px, py, pz, gx, gz, gy, 0.45, true, 20000, avoid)
+		if rem > 1.5 then
+			local p2, rem2 = find_path(nv, px, pz, gx, gz, 0.3, false, 20000, avoid)
+			if rem2 < rem - 1 then p, rem = p2, rem2 end
+		end
+		return p, rem
+	end)
+	b.plan_start = frame
+end
+function beacon_start(it, gx, gz, nv, avoid, counter)
+	local px, py, pz = player_pos()
+	BEACON = { it = it, label = it.label, gx = gx, gz = gz, gy = it.y0 and (it.y0 + 1) or nil, avoid = avoid, counter = counter,
+	           code = map_code(), path = nil, pi = 1, next_knock = frame, best = 1e9, progress = frame }
+	beacon_plan(BEACON, nv, px, py, pz)
+	say("Beacon to " .. it.label .. ".", true)
+end
+function beacon_step()
+	local b = BEACON
+	if not b then return end
+	if map_code() ~= b.code then beacon_stop() return end
+	local px, py, pz = player_pos()
+	if not px then return end
+	if b.co then
+		local ok, p, rem = plan_resume(b.co)
+		if not ok then b.co = nil
+		elseif coroutine.status(b.co) == "dead" then
+			b.co, b.path, b.pi, b.rem = nil, p or {}, 1, rem or 0
+			b.best, b.progress = 1e9, frame
+		end
+	end
+	-- arrived
+	local gd = math.sqrt((b.gx - px) ^ 2 + (b.gz - pz) ^ 2)
+	if gd < (b.it.obj and 1.0 or 0.8) then
+		pcall(sound.play, "chime", 0, 0, -0.5, 0.8)
+		local what = b.counter == "sign" and ", face it and press A to read it" or b.counter and ", talk across the counter" or
+			(b.it.kind == 1 and ", walk into the door") or ""
+		beacon_stop("Arrived at " .. b.label .. what .. ".")
+		return
+	end
+	-- the next turn of the way: passed ones are left behind
+	local path = b.path or {}
+	local wp = path[b.pi]
+	while wp and ((wp[1] - px) ^ 2 + (wp[2] - pz) ^ 2) < 0.64 do
+		b.pi = b.pi + 1
+		wp = path[b.pi]
+		b.best, b.progress = 1e9, frame
+		if wp then pcall(sound.play, "chime", 0, 0, -0.5, 0.35) end
+	end
+	local tx, tz = b.gx, b.gz
+	if wp then tx, tz = wp[1], wp[2] end
+	local dx, dz = tx - px, tz - pz
+	local d = math.sqrt(dx * dx + dz * dz)
+	-- wandered off the way, or getting no nearer: work it out again from here
+	if not b.co then
+		if d < b.best - 0.3 then b.best, b.progress = d, frame end
+		local off = false
+		if wp and b.pi > 1 then
+			local a = path[b.pi - 1]
+			off = seg_dist2(px, pz, a[1], a[2], wp[1], wp[2]) > 2.5 * 2.5
+		end
+		if off or frame - b.progress > 360 then
+			local nv = nav_for()
+			if nv then nv.py = py beacon_plan(b, nv, px, py, pz) end
+		end
+	end
+	-- the knock
+	if frame >= b.next_knock then
+		local ux, uz, rx, rz = screen_axes()
+		local f, r = dx * ux + dz * uz, dx * rx + dz * rz
+		local ang = (math.atan2 or math.atan)(r, f)          -- 0 straight ahead (up), more than 0 to the right
+		local hd = math.max(0.6, math.min(d, 12))
+		local sx, sz = math.sin(ang) * hd, -math.cos(ang) * hd
+		local behind = math.abs(ang) > 1.75
+		pcall(sound.play, "knock", sx, 0, sz, 1.0, behind and 0.7 or 1.0)
+		if math.abs(ang) < 0.25 then b.lock_at, b.lock_pos = frame + 4, { sx, sz } end
+		b.next_knock = frame + math.floor(60 * math.max(0.18, math.min(1.1, 0.12 + d * 0.09)) + 0.5)
+	end
+	if b.lock_at and frame >= b.lock_at then
+		pcall(sound.play, "lock", b.lock_pos[1], 0, b.lock_pos[2], 0.7)
+		b.lock_at = nil
+	end
+end
+function beacon_toggle()
+	if BEACON then beacon_stop("Beacon off.") return end
+	route_request(true)
+end
+
+-- The auto walk beep: faster the nearer you are to where you are going (along the way, not as the
+-- crow flies), and quiet once you are there.
+WALK_BEEP_NEXT = 0
+function walk_beep()
+	if not walk or not sound then WALK_BEEP_NEXT = 0 return end
+	local px, _, pz = player_pos()
+	if not px or frame < WALK_BEEP_NEXT then return end
+	local left
+	if walk.path and walk.pi then
+		local x, z = px, pz
+		left = 0
+		for i = walk.pi, #walk.path do
+			local q = walk.path[i]
+			left = left + math.sqrt((q[1] - x) ^ 2 + (q[2] - z) ^ 2)
+			x, z = q[1], q[2]
+		end
+		left = left + math.sqrt(((walk.tx0 or walk.x) - x) ^ 2 + ((walk.tz0 or walk.z) - z) ^ 2)
+	else
+		left = math.sqrt(((walk.tx0 or walk.x) - px) ^ 2 + ((walk.tz0 or walk.z) - pz) ^ 2)
+	end
+	pcall(sound.play, "beep", 0, 0, -1, 0.55)
+	WALK_BEEP_NEXT = frame + math.floor(60 * math.max(0.1, math.min(1.0, 0.08 + left * 0.045)) + 0.5)
+end
+
 HELP = "R repeat. Control stops speech. W where am I. H health. M magic. L next attribute, one at a time, Shift L previous. U equipment. G gold. I last information. O all menu options. " ..
 	"Page Down and Page Up, next and previous nearby thing. Control with Page Down and Page Up, next and previous category. " ..
 	"Control Home, route there. Control End, walk there. " ..
-	"N and B also go through the nearby things, V next category. D directions again. P route there. J walk there. Shift M mark this spot. " ..
+	"N and B also go through the nearby things, V next category. D directions again. P route there. J walk there. F beacon there, to walk yourself, F again stops it. Shift M mark this spot. " ..
 	"T alerts on or off. C save a debug snapshot. K keys. " ..
 	"On the controller, hold the left trigger: D-pad right and left change category, down and up go through the things in it, " ..
 	"and pressing in the left stick walks there. Pressing in the right stick gives the route to the thing you picked, step by step, " ..
-	"or your gold when nothing is picked or the left trigger is held, or health and magic in a battle. P also gives the route."
+	"or your gold when nothing is picked, or health and magic in a battle. P also gives the route. " ..
+	"Left trigger and pressing in the right stick: the 3D beacon to the thing you picked, to walk there yourself on headphones; again to stop it."
 
 -- the nearby list on the keyboard: Page Up / Page Down go through the things in a category,
 -- with Ctrl through the categories; Ctrl+Home gives the route, Ctrl+End walks there
@@ -6330,6 +6469,7 @@ local function handle_keys()
 	end
 	if k[KEYS.walk] then if walk then stop_walk("Stopped.") else start_walk() end end
 	if k[KEYS.route] then route_request() end
+	if k[KEYS.beacon] then beacon_toggle() end
 	if k[KEYS.alerts] then
 		ALERTS_ON = not ALERTS_ON
 		say(ALERTS_ON and "Alerts on" or "Alerts off")
@@ -6455,6 +6595,8 @@ while true do
 		PT("handle_keys") handle_keys()
 		PT("walk_step") walk_step(controller_pressed)
 		PT("route_step") route_step()
+		beacon_step()
+		walk_beep()
 		PT("nav_prefetch") nav_prefetch()
 
 		PT(nil)	end)
