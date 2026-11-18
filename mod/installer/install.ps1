@@ -97,9 +97,14 @@ function Get-Msys2 {
     return $root
 }
 function Invoke-Bash([string]$root, [string]$cmd) {
+    # (through a script file: Windows PowerShell loses the quotes in a command passed on the command line)
     $env:MSYSTEM = 'UCRT64'; $env:CHERE_INVOKING = '1'; $env:DQ9_PORT = $Port
-    & (Join-Path $root 'usr\bin\bash.exe') -lc ('cd "$(cygpath -u "$DQ9_PORT")" || exit 1; ' + $cmd) | Out-Host
-    return $LASTEXITCODE
+    $sh = Join-Path $env:TEMP ('dq9-access-' + [guid]::NewGuid().ToString('N') + '.sh')
+    [IO.File]::WriteAllText($sh, ('cd "$(cygpath -u "$DQ9_PORT")" || exit 1' + "`n" + $cmd + "`n"))
+    & (Join-Path $root 'usr\bin\bash.exe') -l ($sh -replace '\\', '/') | Out-Host
+    $code = $LASTEXITCODE
+    Remove-Item -LiteralPath $sh -ErrorAction SilentlyContinue
+    return $code
 }
 
 $marker = Join-Path $Port 'dq9-access-patch.txt'
@@ -119,16 +124,25 @@ if (-not $hasHooks -or $have -lt $man.patch) {
         Stop-Install 'the "patch" tool could not be installed in the build tools (it needs the internet).'
     }
     $env:DQ9_PATCH = $PatchFile; $env:DQ9_APPLIED = $applied
+    $same = $false
     if ($hasHooks) {
-        # an older version of the mod's code: take it out first
-        if (-not (Test-Path $applied) -or (Invoke-Bash $msys 'patch -p1 -R --dry-run -s -i "$(cygpath -u "$DQ9_APPLIED")" >/dev/null && patch -p1 -R -s -i "$(cygpath -u "$DQ9_APPLIED")"') -ne 0) {
-            Stop-Install 'the older version of the mod in the game''s code could not be taken out. Update the PC version (Help, Check for updates in the game), then run this again.'
+        if (Test-Path $applied) {
+            # an older version of the mod's code: take it out first
+            if ((Invoke-Bash $msys 'patch -p1 -R --dry-run -s -i "$(cygpath -u "$DQ9_APPLIED")" >/dev/null && patch -p1 -R -s -i "$(cygpath -u "$DQ9_APPLIED")"') -ne 0) {
+                Stop-Install 'the older version of the mod in the game''s code could not be taken out. Update the PC version (Help, Check for updates in the game), then run this again.'
+            }
+        } elseif ((Invoke-Bash $msys 'patch -p1 -R --dry-run -s -i "$(cygpath -u "$DQ9_PATCH")" >/dev/null') -eq 0) {
+            $same = $true      # put in before this installer, and the same as this version's
+        } else {
+            Stop-Install 'the game''s code already has a different version of the mod in it. Update the PC version (Help, Check for updates in the game), then run this again.'
         }
     }
-    if ((Invoke-Bash $msys 'patch -p1 --forward --dry-run -s -i "$(cygpath -u "$DQ9_PATCH")" >/dev/null') -ne 0) {
-        Stop-Install 'this version of the PC version is too different for the mod. Please report it (with the version of your PC version) on the mod''s GitHub page.'
+    if (-not $same) {
+        if ((Invoke-Bash $msys 'patch -p1 --forward --dry-run -s -i "$(cygpath -u "$DQ9_PATCH")" >/dev/null') -ne 0) {
+            Stop-Install 'this version of the PC version is too different for the mod. Please report it (with the version of your PC version) on the mod''s GitHub page.'
+        }
+        [void](Invoke-Bash $msys 'patch -p1 --forward -s -i "$(cygpath -u "$DQ9_PATCH")"')
     }
-    [void](Invoke-Bash $msys 'patch -p1 --forward -s -i "$(cygpath -u "$DQ9_PATCH")"')
     # the mod's own files in the game's code (speech, running the script, Lua)
     Copy-Item -Path (Join-Path $PatchDir 'files\*') -Destination $Port -Recurse -Force
     Copy-Item -LiteralPath $PatchFile -Destination $applied -Force
@@ -159,7 +173,7 @@ if ($needBuild) {
     Say 'Building the game again with the mod in it. This takes a few minutes; the text below shows how it is going.'
     Say ''
     $env:DQIX_NOPAUSE = '1'
-    & cmd /c "`"$(Join-Path $Port 'BUILD.bat')`"" | Out-Host
+    & (Join-Path $Port 'BUILD.bat') | Out-Host
     if ($LASTEXITCODE -ne 0) { Stop-Install 'the game could not be built (the text above says why).' }
 }
 
