@@ -261,6 +261,8 @@ CHANGES IN 0.4
   so a door that opens later in the story, or one you have unlocked, is no longer called locked.
   A door with a keyhole also says which key opens it ("opens with the Magic Key").
   Auto walk to a door that will not open yet tells you so instead of walking there.
+- A person the game names (Apus Major, Aquila ...) speaking no longer gives their name to whoever
+  stands nearest you; a name wrongly learned that way before is dropped.
 - Things in other rooms: one area of the game can hold several rooms joined only through another
   area (the prayer room, study and storeroom off the Observatory hall). People, items and doors you
   cannot walk to from where you stand now come after the rest of the list and end with "no way

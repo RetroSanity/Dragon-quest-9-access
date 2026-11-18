@@ -2563,6 +2563,13 @@ local function characters()
 					if label:find("reads the sign", 1, true) then label = "sign"
 					else label = label:gsub("^someone who says", "something that says") end
 				end
+				-- (a game name learned by mistake for someone standing next to its owner)
+				if label and not gname and person and key and people[key] == label then
+					local c = map_code()
+					local t = c and NPC_NAMES[c:sub(1, 3)]
+					local bare = label:gsub("%s+$", "")
+					if t then for _, v in pairs(t) do if v == bare then label = nil break end end end
+				end
 				-- only names are kept for people; what they said is not part of the label
 				if person and label and label:find("^someone who says") then label = nil end
 				if story and label and label ~= gname then label = label .. ", story character" end
@@ -2765,6 +2772,15 @@ on_new_message = function(text, full)
 	-- a sign read from the wrong side is learned again once it has been read properly
 	if not best or (known and not (best.thing and (known == "sign" or known == "inscription" or known:find("something that says", 1, true) or known:find("reads the sign", 1, true)))) then return end
 	local name = text:match("^([%u][%w%.' %-]-): ")
+	-- someone the game itself names (Apus Major, Aquila ...) is speaking: the name is theirs,
+	-- not that of whoever happens to stand nearest you
+	if name and not best.thing then
+		local mine = best.obj and npc_game_name(best.obj)
+		if mine and mine ~= name then return end
+		local c = map_code()
+		local t = c and NPC_NAMES[c:sub(1, 3)]
+		if t then for _, v in pairs(t) do if v == name and mine ~= name then return end end end
+	end
 	local label
 	if best.thing then
 		if full:find("reads the sign", 1, true) then
