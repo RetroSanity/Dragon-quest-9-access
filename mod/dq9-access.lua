@@ -2837,6 +2837,50 @@ function name_doors_by_side(ds)
 	end
 end
 
+-- (the doors of this place with their names, for tests)
+function doors_named_g()
+	local ds = {}
+	for _, d in ipairs(doors()) do ds[#ds + 1] = d end
+	for _, d in ipairs(town_doors()) do ds[#ds + 1] = d end
+	name_doors_by_side(ds)
+	rename_doors(ds)
+	return ds
+end
+-- Doors named after where they go, by place ("map code#map id") and where the door stands.
+-- (Observatory level 1: the main hall, map 4105, and the rooms round it, map 4106)
+DOOR_NAMES_AT = {
+	["X01M05#4105"] = {
+		{ -3.25, -11.9, "prayer room door, left" },        -- the save point: the angel with a ponytail
+		{ 3.25, -11.9, "prayer room door, right" },
+		{ -8.5, -13.8, "locked door, top left" },
+		{ -13.0, -6.9, "locked door, left, upper" },
+		{ 13.0, -7.9, "locked door, right, upper" },
+		{ 17.25, 10.65, "locked door, right, lower" },
+		{ 0.0, 8.0, "locked door, bottom middle" },
+		{ -12.5, 15.1, "study door" },                    -- bookshelves, a desk, stairs up
+		{ 12.25, 15.1, "storeroom door" },                -- pots, a barrel, stairs up
+		{ -17.0, 10.65, "left door, lower, behind a wall" },
+	},
+}
+-- every plain door of a place leads to the same one: "door back to the main hall (top right)"
+DOOR_NAMES_ALL = { ["X01M05#4106"] = "door back to the main hall" }
+function rename_doors(ds)
+	local key = (map_code() or ""):sub(1, 6) .. "#" .. u16(MAPID)
+	local list, all = DOOR_NAMES_AT[key], DOOR_NAMES_ALL[key]
+	if not list and not all then return end
+	for _, d in ipairs(ds) do
+		if d.kind == 1 then
+			local named = false
+			for _, e in ipairs(list or {}) do
+				if math.abs(d.x - e[1]) < 1.0 and math.abs(d.z - e[2]) < 1.0 then d.label, named = e[3], true break end
+			end
+			if not named and all and d.label:match(" door") and d.label ~= "door outside" then
+				local side = d.label:gsub(" door,? ?", " "):gsub("%s+$", "")
+				d.label = all .. " (" .. side .. ")"
+			end
+		end
+	end
+end
 local function build_nearby()
 	local px, _, pz = player_pos()
 	if not px then return {} end
@@ -2848,6 +2892,7 @@ local function build_nearby()
 	for _, d in ipairs(doors()) do ds[#ds + 1] = d end
 	for _, d in ipairs(town_doors()) do ds[#ds + 1] = d end
 	name_doors_by_side(ds)
+	rename_doors(ds)
 	-- many exits into the same place (the archways all round a tower): list only the nearest
 	local same = {}
 	for _, d in ipairs(ds) do
@@ -3809,11 +3854,23 @@ local function walk_step(host_pressed)
 				return
 			end
 			if walk.label == "entrance" then stop_walk("At the entrance. Walk into it or press A.") return end
+			-- the game can take a moment to say a door is locked: wait for it before giving up
+			walk.giveup = walk.giveup or frame
+			if door_locked_text() then
+				local label = walk.label
+				stop_walk()
+				door_locked.said = frame
+				say(label:gsub("^%l", string.upper) .. " is locked.", true)
+				return
+			end
+			if frame - walk.giveup < 40 then return end
 			stop_walk("At " .. walk.label .. ", but it did not open. Try walking into it yourself.") return
 		end
 	elseif walk.exit and not walk.door and d < 0.7 then
 		start_exit_push(walk, px, pz) return
 	elseif not walk.door and d < (walk.obj and 1.4 or 0.7) then
+		-- next to someone: turn to them, so A talks to them
+		if walk.obj and not walk.face then walk.face = { walk.x, walk.z } walk.face_msg = "Arrived at " .. walk.label .. "." end
 		if walk.face then
 			-- turn to face them across the counter
 			walk.face_end = walk.face_end or frame + 10
@@ -3906,6 +3963,21 @@ local function walk_step(host_pressed)
 		-- the route is done: the last bit is straight
 		dx, dz = walk.x - px, walk.z - pz
 		if walk.exit and (walk.rem or 0) > 1.0 and d < 4 then start_exit_push(walk, px, pz) return end
+		if walk.door and (walk.rem or 0) > 3.0 and walk.stage == "front" and not walk.door.flipped and not walk.exit then
+			-- no way to this side of the door: try its other side
+			local dr = walk.door
+			dr.nx, dr.nz, dr.flipped = -dr.nx, -dr.nz, true
+			walk.x, walk.z = dr.x + dr.nx * 1.8, dr.z + dr.nz * 1.8
+			walk.path, walk.co, walk.best, walk.progress = nil, nil, 1e9, frame
+			return
+		end
+		if walk.door and (walk.rem or 0) > 3.0 and walk.stage == "front" and walk.door.flipped and not walk.exit then
+			-- a door on the far side of a wall: reached from another part of the place
+			local label = walk.label
+			stop_walk()
+			say("There is no way to " .. label .. " from here. It is reached from another part of this place, through another door.", true)
+			return
+		end
 		if (walk.rem or 0) > 1.0 and walk.stage ~= "in" then
 			-- the route could not reach it (a shop counter, a fence): turn to face it and stop here
 			walk.final = walk.final or frame + 12
@@ -3968,6 +4040,15 @@ local function walk_step(host_pressed)
 end
 
 ------------------------------------------------------------------------------ alerts --------
+-- "The door is locked.": the game leaves those words in its message buffer (and lets you go on
+-- walking while it shows them), so walking into the same locked door again shows the message
+-- with nothing new to read. Walking into a door that the buffer says is locked: say it again.
+door_locked = { said = -1000 }
+function door_locked_text()
+	local t = clean(cstring(DLG, 120))
+	if t:find("is locked", 1, true) then return t end
+	return nil
+end
 local still_frames, last_px, last_pz, bumped = 0, nil, nil, false
 local close_to = {}
 
@@ -3983,7 +4064,15 @@ local function alerts(pad)
 		still_frames = still_frames + 1
 		if still_frames == 12 and not bumped then
 			bumped = true
-			say("blocked", true)
+			-- against a door the game says is locked: say that
+			local lt = door_locked_text()
+			if lt then
+				lt = nil
+				for _, d in ipairs(doors()) do
+					if d.kind == 1 and (d.x - px) ^ 2 + (d.z - pz) ^ 2 < 4 then lt = door_locked_text() break end
+				end
+			end
+			say(lt or "blocked", true)
 		end
 	else
 		still_frames = 0

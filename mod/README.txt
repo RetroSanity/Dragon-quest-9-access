@@ -242,3 +242,11 @@ CHANGES IN 0.4
 - Every screen reader: the mod talks through Prism, so NVDA, JAWS, Narrator, ZDSR, System Access,
   PC-Talker, ZoomText and others all work, and a Windows voice when none is running.
   This version changes the game's part of the mod: run Install DQ9 Access.bat once.
+- The Observatory's first floor: the doors round the main hall are named after where they go
+  (prayer room, study, storeroom, and which ones are locked); from the rooms, the doors are
+  "door back to the main hall".
+- Auto walk to a locked door says it is locked, and walking into a locked door again reads
+  "The door is locked." again.
+- Auto walk to a person turns you to face them, so A talks to them.
+- Auto walk to a door on the far side of a wall tries the door's other side, and if there is no
+  way to it from where you are, says so instead of walking part of the way.
