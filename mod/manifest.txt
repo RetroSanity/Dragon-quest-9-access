@@ -1,10 +1,10 @@
-version 0.3
+version 0.3.1
 patch 1
 file 442 Install DQ9 Access.bat
 file 26434 LICENSE-NVDA.txt
-file 13984 README.txt
+file 14058 README.txt
 file 2526928 dq9-access-maps.bin
-file 364450 dq9-access.lua
+file 364452 dq9-access.lua
 file 153600 nvdaControllerClient64.dll
 file 11096 installer/install.ps1
 file 16764 installer/game-patch/access-game.patch
