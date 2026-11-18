@@ -65,6 +65,8 @@ WALK_BEEP_ON = true
 WALK_BEEP_VOL = 6              -- 0 to 10
 BEACON_VOL = 8                 -- 0 to 10
 TURN_CHIME_ON = true
+TURN_SPEECH_ON = false         -- the beacon says each turn of the way ("then 5 steps left")
+BUMP_SOUND_ON = true           -- a thud from the way you pushed when you walk into something
 PLACES_FILE = DIR .. "dq9-access-places.txt"
 LOG_FILE = DIR .. "dq9-access-log.txt"
 
@@ -4514,7 +4516,33 @@ end
 local still_frames, last_px, last_pz, bumped = 0, nil, nil, false
 local close_to = {}
 
+-- the bump sound: a thud from the way you are pushing, a moment after you stop against something
+-- (quicker than the spoken "blocked", and it says which side)
+BUMP = { still = 0, done = false, lx = nil, lz = nil }
+function bump_sound(pad)
+	if not BUMP_SOUND_ON or not sound then return end
+	local px, _, pz = player_pos()
+	if not px then return end
+	local push = pad.up or pad.down or pad.left or pad.right
+	local b = BUMP
+	if push and u8(0x02109DA4) == 1 and b.lx and math.abs(px - b.lx) < 0.01 and math.abs(pz - b.lz) < 0.01
+	   and frame - last_dialogue_frame > 60 and frame - last_menu_frame > 120 and not in_battle() and not walk then
+		b.still = b.still + 1
+		if b.still == 5 and not b.done then
+			b.done = true
+			local x = (pad.right and 1 or 0) - (pad.left and 1 or 0)
+			local z = (pad.down and 1 or 0) - (pad.up and 1 or 0)
+			pcall(sound.play, "bump", x * 1.2, -0.3, z * 1.2, 0.9)
+		end
+	else
+		b.still = 0
+		if not push or (b.lx and (math.abs(px - b.lx) > 0.02 or math.abs(pz - b.lz) > 0.02)) then b.done = false end
+	end
+	b.lx, b.lz = px, pz
+end
+
 local function alerts(pad)
+	pcall(bump_sound, pad)
 	if not ALERTS_ON then return end
 	local px, _, pz = player_pos()
 	if not px then return end
@@ -6133,6 +6161,7 @@ local function handle_pad_combos(k)
 	if pad_edge(k, R3_NAMES) then
 		if in_battle() then say_party()
 		elseif lt_held and (BEACON or (sel_item and sel_item.code == map_code())) then beacon_toggle()
+		elseif not lt_held and BEACON then beacon_status()
 		elseif not lt_held and sel_item and sel_item.code == map_code() then route_request()
 		else say_gold() end
 	end
@@ -6311,7 +6340,8 @@ end
 function beacon_start(it, gx, gz, nv, avoid, counter)
 	local px, py, pz = player_pos()
 	BEACON = { it = it, label = it.label, gx = gx, gz = gz, gy = it.y0 and (it.y0 + 1) or nil, avoid = avoid, counter = counter,
-	           code = map_code(), path = nil, pi = 1, next_knock = frame, best = 1e9, progress = frame }
+	           code = map_code(), path = nil, pi = 1, next_knock = frame, best = 1e9, progress = frame,
+	           obj = (not counter) and it.obj or nil, posoff = it.posoff or 0x24, moved = frame }
 	beacon_plan(BEACON, nv, px, py, pz)
 	say("Beacon to " .. it.label .. ".", true)
 end
@@ -6321,6 +6351,22 @@ function beacon_step()
 	if map_code() ~= b.code then beacon_stop() return end
 	local px, py, pz = player_pos()
 	if not px then return end
+	-- quiet while someone talks, a menu is open, a scene plays or a battle is on; on again after
+	if u8(0x02109DA4) ~= 1 or in_battle() or frame - last_dialogue_frame < 20 then
+		b.next_knock = math.max(b.next_knock, frame + 20)
+		b.progress = frame
+		b.lock_at = nil
+		return
+	end
+	-- someone who walks about: follow them, working the way out again when they have moved
+	if b.obj and inram(b.obj, 0x80) then
+		local ox, oz = s32(b.obj + b.posoff) / 4096, s32(b.obj + b.posoff + 8) / 4096
+		if (ox - b.gx) ^ 2 + (oz - b.gz) ^ 2 > 2.25 and frame - b.moved > 90 and not b.co then
+			b.gx, b.gz, b.moved = ox, oz, frame
+			local nv = nav_for()
+			if nv then nv.py = py beacon_plan(b, nv, px, py, pz) end
+		end
+	end
 	if b.co then
 		local ok, p, rem = plan_resume(b.co)
 		if not ok then b.co = nil
@@ -6331,10 +6377,21 @@ function beacon_step()
 	end
 	-- arrived
 	local gd = math.sqrt((b.gx - px) ^ 2 + (b.gz - pz) ^ 2)
-	if gd < (b.it.obj and 1.0 or 0.8) then
+	if gd < (b.it.obj and 1.2 or 0.8) then
 		pcall(sound.play, "chime", 0, 0, -0.5, 0.8)
-		local what = b.counter == "sign" and ", face it and press A to read it" or b.counter and ", talk across the counter" or
-			(b.it.kind == 1 and ", walk into the door") or ""
+		-- which way to face: up, down, left or right on the screen
+		local ux, uz, rx, rz = screen_axes()
+		local tx, tz = b.gx, b.gz
+		if b.it.x and b.counter then tx, tz = b.it.x, b.it.z end
+		local f, r = (tx - px) * ux + (tz - pz) * uz, (tx - px) * rx + (tz - pz) * rz
+		local face = math.abs(f) >= math.abs(r) and (f >= 0 and "up" or "down") or (r >= 0 and "right" or "left")
+		local what
+		if b.counter == "sign" then what = ". Face " .. face .. " and press A to read it"
+		elseif b.counter then what = ". Face " .. face .. " and press A to talk across the counter"
+		elseif b.it.kind == 1 then what = ". Walk " .. face .. " into the door"
+		elseif b.it.kind == 0 then what = ". Walk " .. face .. " to go through"
+		elseif b.it.obj and not b.it.thing then what = ". Face " .. face .. " and press A to talk"
+		else what = ". It is " .. face .. " from you; face it and press A" end
 		beacon_stop("Arrived at " .. b.label .. what .. ".")
 		return
 	end
@@ -6346,6 +6403,7 @@ function beacon_step()
 		wp = path[b.pi]
 		b.best, b.progress = 1e9, frame
 		if wp and TURN_CHIME_ON then pcall(sound.play, "chime", 0, 0, -0.5, 0.45 * BEACON_VOL / 10) end
+		if wp and TURN_SPEECH_ON then say("Then " .. beacon_leg(px, pz, wp[1], wp[2]) .. ".", true) end
 	end
 	local tx, tz = b.gx, b.gz
 	if wp then tx, tz = wp[1], wp[2] end
@@ -6380,6 +6438,50 @@ function beacon_step()
 		pcall(sound.play, "lock", b.lock_pos[1], 0, b.lock_pos[2], 0.9 * BEACON_VOL / 10)
 		b.lock_at = nil
 	end
+end
+-- one leg of the way, as you would walk it on the D-pad: "5 steps left" (and "2 steps up" when it
+-- is slanted)
+function beacon_leg(x0, z0, x1, z1)
+	local ux, uz, rx, rz = screen_axes()
+	local dx, dz = x1 - x0, z1 - z0
+	local f, r = dx * ux + dz * uz, dx * rx + dz * rz
+	local a = steps(f, f >= 0 and "up" or "down")
+	local c = steps(r, r >= 0 and "right" or "left")
+	if a and c then
+		if math.abs(f) >= math.abs(r) then
+			return math.abs(r) < 0.35 * math.abs(f) and a or (a .. " and " .. c)
+		end
+		return math.abs(f) < 0.35 * math.abs(r) and c or (c .. " and " .. a)
+	end
+	return a or c or "a step"
+end
+-- where the beacon is taking you, said when you ask (the route key while the beacon is on)
+function beacon_status()
+	local b = BEACON
+	local px, _, pz = player_pos()
+	if not b or not px then return end
+	if b.co then say("Working out the way to " .. b.label .. ".", true) return end
+	local path = b.path or {}
+	local x, z, left = px, pz, 0
+	for i = b.pi, #path do
+		left = left + math.sqrt((path[i][1] - x) ^ 2 + (path[i][2] - z) ^ 2)
+		x, z = path[i][1], path[i][2]
+	end
+	left = left + math.sqrt((b.gx - x) ^ 2 + (b.gz - z) ^ 2)
+	local n = math.max(1, math.floor(left + 0.5))
+	local t = b.label .. ", " .. n .. (n == 1 and " step" or " steps") .. " to go. "
+	local wp = path[b.pi]
+	if wp then
+		t = t .. "Next: " .. beacon_leg(px, pz, wp[1], wp[2])
+		local nx = path[b.pi + 1] or { b.gx, b.gz }
+		if (nx[1] - wp[1]) ^ 2 + (nx[2] - wp[2]) ^ 2 > 0.8 then
+			t = t .. ", then " .. beacon_leg(wp[1], wp[2], nx[1], nx[2])
+		end
+		t = t .. "."
+	else
+		t = t .. beacon_leg(px, pz, b.gx, b.gz) .. "."
+	end
+	say(t, true)
 end
 function beacon_toggle()
 	if BEACON then beacon_stop("Beacon off.") return end
@@ -6421,7 +6523,9 @@ SETTINGS = {
 	{ name = "Auto walk beep volume", level = true, get = function() return WALK_BEEP_VOL end, set = function(v) WALK_BEEP_VOL = v end, key = "walk_beep_volume" },
 	{ name = "Beacon volume", level = true, get = function() return BEACON_VOL end, set = function(v) BEACON_VOL = v end, key = "beacon_volume" },
 	{ name = "Beacon chime at each turn", get = function() return TURN_CHIME_ON end, set = function(v) TURN_CHIME_ON = v end, key = "turn_chime" },
+	{ name = "Beacon says each turn of the way", get = function() return TURN_SPEECH_ON end, set = function(v) TURN_SPEECH_ON = v end, key = "turn_speech" },
 	{ name = "Test the beacon on headphones", action = "test" },
+	{ name = "Bump sound when you walk into something", get = function() return BUMP_SOUND_ON end, set = function(v) BUMP_SOUND_ON = v end, key = "bump_sound" },
 	{ name = "Blocked alert, when you walk into something", get = function() return ALERTS_ON end, set = function(v) ALERTS_ON = v end, key = "blocked_alert" },
 	{ name = "Say the position in menus, such as 2 of 6", get = function() return SAY_POSITION_IN_MENUS end, set = function(v) SAY_POSITION_IN_MENUS = v end, key = "menu_position" },
 	{ name = "Say people and monsters coming close", get = function() return NEARBY_ALERTS end, set = function(v) NEARBY_ALERTS = v end, key = "nearby_alerts" },
@@ -6645,7 +6749,7 @@ local function handle_keys()
 		else say("Cannot mark here.") end
 	end
 	if k[KEYS.walk] then if walk then stop_walk("Stopped.") else start_walk() end end
-	if k[KEYS.route] then route_request() end
+	if k[KEYS.route] then if BEACON then beacon_status() else route_request() end end
 	if k[KEYS.beacon] then beacon_toggle() end
 	if k[KEYS.alerts] then
 		ALERTS_ON = not ALERTS_ON

@@ -276,6 +276,14 @@ CHANGES IN 0.51
   "Ahead" is up on the screen, the way up on the D-pad walks you. A chime at each turn of the way
   and when you arrive. If you wander off the way, it is worked out again from where you are.
   Uses OpenAL Soft (openal_soft.dll, LGPL, licence in openal-licence) with HRTF for headphones.
+- The beacon is quiet while someone talks, a menu is open, a scene plays or a battle is on, and
+  carries on afterwards. It follows people and monsters who walk about. The route key (P, or the
+  right stick pressed in) while it is on says how far there is to go and the next turns ("12
+  steps to go. Next: 3 steps up, then 5 steps left."). On arriving it says which way to face
+  ("Face up and press A to talk"). "Beacon says each turn of the way" in Mod settings speaks each
+  turn as you reach it.
+- Bump sound: a thud from the side you pushed when you walk into something, a moment after you
+  stop (quicker than the spoken "blocked"). On or off in Mod settings.
 - Auto walk beeps while it walks you: faster the nearer you are (along the way), and a chime when
   you arrive.
   The beacon and the beep need the new game part of the mod: run Install DQ9 Access.bat once.
