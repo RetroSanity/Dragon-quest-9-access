@@ -938,7 +938,8 @@ local function read_menu()
 	else
 		if title then text = title .. (title:find("[%.%?!:]$") and " " or ". ") .. text end
 		-- left and right turn the page of a long list (titles, countries)
-		if not title and frame - last_button_frame < 40 and (last_button_name == "right" or last_button_name == "left")
+		-- (not in battle: left and right there move between monsters)
+		if not title and not in_battle() and frame - last_button_frame < 40 and (last_button_name == "right" or last_button_name == "left")
 			and prev_count and frame - (last_menu_spoken_prev or -1000) < 600 then
 			text = (last_button_name == "right" and "Next page. " or "Previous page. ") .. text
 		end

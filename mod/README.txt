@@ -282,6 +282,7 @@ CHANGES IN 0.51
   steps to go. Next: 3 steps up, then 5 steps left."). On arriving it says which way to face
   ("Face up and press A to talk"). "Beacon says each turn of the way" in Mod settings speaks each
   turn as you reach it.
+- In battle, moving between monsters with left and right no longer says "Next page".
 - Bump sound: a thud from the side you pushed when you walk into something, a moment after you
   stop (quicker than the spoken "blocked"). On or off in Mod settings.
 - Auto walk beeps while it walks you: faster the nearer you are (along the way), and a chime when
