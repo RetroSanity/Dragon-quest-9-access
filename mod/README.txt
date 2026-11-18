@@ -276,15 +276,6 @@ CHANGES IN 0.51
   "Ahead" is up on the screen, the way up on the D-pad walks you. A chime at each turn of the way
   and when you arrive. If you wander off the way, it is worked out again from where you are.
   Uses OpenAL Soft (openal_soft.dll, LGPL, licence in openal-licence) with HRTF for headphones.
-- The beacon is quiet while someone talks, a menu is open, a scene plays or a battle is on, and
-  carries on afterwards. It follows people and monsters who walk about. The route key (P, or the
-  right stick pressed in) while it is on says how far there is to go and the next turns ("12
-  steps to go. Next: 3 steps up, then 5 steps left."). On arriving it says which way to face
-  ("Face up and press A to talk"). "Beacon says each turn of the way" in Mod settings speaks each
-  turn as you reach it.
-- In battle, moving between monsters with left and right no longer says "Next page".
-- Bump sound: a thud from the side you pushed when you walk into something, a moment after you
-  stop (quicker than the spoken "blocked"). On or off in Mod settings.
 - Auto walk beeps while it walks you: faster the nearer you are (along the way), and a chime when
   you arrive.
   The beacon and the beep need the new game part of the mod: run Install DQ9 Access.bat once.
@@ -300,3 +291,34 @@ CHANGES IN 0.51
   cannot walk to from where you stand now come after the rest of the list and end with "no way
   there from here"; the category says how many are in other rooms ("People, 6, 5 of them in
   other rooms"), and auto walk tells you to go through a door instead of walking into a wall.
+
+CHANGES AFTER 0.51 (not released yet)
+-------------------------------------
+- The beacon is quiet while someone talks, a menu is open, a scene plays or a battle is on, and
+  carries on afterwards. It follows people and monsters who walk about. The route key (P, or the
+  right stick pressed in) while it is on says how far there is to go and the next turns ("12
+  steps to go. Next: 3 steps up, then 5 steps left."). On arriving it says which way to face
+  ("Face up and press A to talk"). "Beacon says each turn of the way" in Mod settings speaks each
+  turn as you reach it.
+- In battle, moving between monsters with left and right no longer says "Next page".
+- Bump sound: a thud from the side you pushed when you walk into something, a moment after you
+  stop (quicker than the spoken "blocked"). On or off in Mod settings.
+- Exits named after the game's part names now say the place: "exit to Mountain Pass" instead of
+  "exit to Exterior". Also Brigadoom, Tywll Cave, Gerzuun, the Oubliette, the Old School of
+  Swinedimples, the Starflight Express and grottoes.
+- At the start of a battle, the last battle's command list ("Retro's turn. Attack") is no longer
+  read before "Fight"; the turn is said once, when it really comes.
+- Shops: moving through the list no longer reads the last item's description before the new one.
+  On Mod settings in the Misc. menu, Quick Save's description is no longer read.
+- A person behind a counter that auto walk or the beacon cannot get round to: you are turned to
+  face them and told "most likely across a counter. Press A to talk." The route key says the same.
+- Route directions read better: "Sign: it is 1 step up; face it and press A to read it" instead of
+  repeating the name, and "you are as close as the way goes. It is 2 steps right."
+- The beacon arriving at a monster says "walk into it to fight" instead of "press A to talk".
+- Starting the beacon stops an auto walk, and starting an auto walk stops the beacon (both used to
+  run at once).
+- Stray letters after finding something ("KRetro acquires", "benevolessence.<", "joins retro!;")
+  are gone, and "Erinn:,Guardian" reads "Erinn: Guardian".
+- A yes or no answer reads only the answer you picked, not both.
+- Waking up in bed: doors are no longer called "no way there from here" for a moment.
+- "1 point left" when allocating skill points.

@@ -245,7 +245,9 @@ end
 -- Turn game markup or a message into something a speech engine reads well.
 local function clean(s)
 	if not s or s == "" then return "" end
-	s = s:gsub("[\1-\31]\255", " ")                  -- control codes: new line, wait, end ...
+	-- control codes are a byte and 255: new line, wait, end ... (also ones above 31, such as
+	-- the jingle of finding something, "K" or "<" and 255, which used to be read out)
+	s = s:gsub("[\1-\254]\255", " ")
 	s = s:gsub("\\n", " "):gsub("[\r\n]", " ")
 	s = s:gsub("<([^<>]*)>", tag_text)
 	s = s:gsub("^%s*//(.-)//%s*", "%1: ")                -- "//Aquila// text" -> "Aquila: text"
@@ -253,8 +255,10 @@ local function clean(s)
 	s = s:gsub("^%s*%*:%s*", "")                        -- "*:" marks an unnamed speaker
 	s = s:gsub("%s*%*:%s*", " ")
 	s = s:gsub("[\128-\255]", "")
+	s = s:gsub("[\1-\31]", "")
 	s = s:gsub("%s+", " "):gsub("^ ", ""):gsub(" $", "")
 	s = s:gsub(" ([,%.!%?])", "%1")
+	s = s:gsub(":,%s*", ": ")                             -- "Erinn:,Guardian" (a pause after the name)
 	return s
 end
 
@@ -368,6 +372,12 @@ local function split_pages(raw)
 		if n == 255 and PAGE_ENDS[b] then
 			if i > from then pages[#pages + 1] = { from, i - 1 } end
 			from = i + 2
+			i = i + 2
+		elseif n == 255 and (b == 0x14 or b == 0x15) and i > from + 1 then
+			-- the start of the answer to a yes or no (20 for yes, 21 for no): the other answer
+			-- before it is not part of it (the page starts at the code, where the game points)
+			pages[#pages + 1] = { from, i - 1 }
+			from = i
 			i = i + 2
 		else
 			i = i + 1
@@ -746,7 +756,7 @@ function read_skill_points(m, cursor)
 		text = names[5] or "Confirm"
 	end
 	local pos = ", " .. (math.min(cursor, 5) + 1) .. " of 6"
-	local tail = left and (". " .. left .. " points left") or ""
+	local tail = left and (". " .. left .. (tonumber(left) == 1 and " point left" or " points left")) or ""
 	local key = cursor .. "|" .. table.concat(nums, ",") .. "|" .. tostring(left)
 	if key == skill_said then return end
 	local first = skill_said == nil
@@ -847,7 +857,15 @@ local function read_menu()
 			local script = m:find("<PAGE>", 1, true) or m:find("<END>", 1, true) or m:find("<YESNO>", 1, true) or m:find("<N_TURN>", 1, true)
 				or m:find("<IF_", 1, true) or m:find("<ELSE", 1, true) or m:find("_NAME>", 1, true)
 			local t = script and "" or clean(m)
-			if #t > 12 and t:match("%a%a%a") and t:match("[%.!%?]$") and t ~= plain_said and t ~= dlg_last_text and t ~= last_said
+			-- an item's description: the menu reader says it with the item (the box can lag a
+			-- frame behind and show the last item's); on "Mod settings" the box still shows a
+			-- game item's
+			if not ITEM_DESC_SET then
+				ITEM_DESC_SET = {}
+				for _, d in pairs(ITEM_DESC) do ITEM_DESC_SET[clean_text_g(d)] = true end
+			end
+			local skip = (ITEM_DESC_SET[t] and frame - (last_dsc_frame or -1000) < 120) or (MS and (MS.on_item or MS.open))
+			if not skip and #t > 12 and t:match("%a%a%a") and t:match("[%.!%?]$") and t ~= plain_said and t ~= dlg_last_text and t ~= last_said
 				and not is_layout_label(t) then
 				plain_said = t
 				queue(t)
@@ -902,6 +920,13 @@ local function read_menu()
 	if same_menu and cursor == menu_cursor then return end   -- redrawn, nothing moved
 	-- In a battle, picking a command redraws the list you picked from: that is not news.
 	if in_battle() then
+		-- a new battle opens on Fight / Flee; until then the list on screen is the last
+		-- battle's command list, still in the buffer: not news
+		if items[0] and items[0].text == "Fight" then battle_fight_seen = true end
+		if not battle_fight_seen and items[0] and items[0].text == "Attack" then
+			menu_sig = ""            -- so the real one, when it comes, is news
+			return
+		end
 		-- a fresh set of commands each round
 		if battle_phase() ~= 3 or battle_menu_said.round ~= battle_round then battle_menu_said = { round = battle_round } end
 		if last_button_name == "a" and battle_menu_said[sig .. cursor] then
@@ -932,6 +957,7 @@ local function read_menu()
 	local prev_count = last_menu_count
 	last_menu_count = count
 	local dsc = item_desc_of(it.text)
+	if dsc then last_dsc_frame = frame end
 	if same_menu then
 		say(text, true)
 		if dsc then queue(dsc) end
@@ -991,7 +1017,7 @@ local function read_battle_phase()
 		menu_cursor, menu_title = cur, nil
 		menu_items = {}
 		for i = 0, 3 do menu_items[i] = { text = BATTLE_COMMANDS[i] } end
-		battle_actor_said = nil
+		battle_actor_said, battle_fight_seen = nil, true
 		queue(BATTLE_COMMANDS[cur] .. ", " .. (cur + 1) .. " of 4")
 	end
 end
@@ -1588,6 +1614,9 @@ AREAS = {
 	S10="Mountain Hut", S11="Ulbaruun Cave", S12="Bloomingdale Region", S15="Wyrmward", T01="Tower of Trades",
 	T02="Tower of Nod", X01="Observatory", X02="Alltrades Abbey", X03="Realm of the Almighty",
 	X04="Realm of the Mighty", X05="Observatory (After Attack)",
+	-- from the game's own map list (the name before each area's first map)
+	S01="Mountain Pass", D03="Brigadoom", D06="Tywll Cave", D12="Gerzuun", D13="Swinedimples Old School",
+	D17="Oubliette", S14="Starflight Express", Z00="Grotto",
 }
 -- item number -> name, read from the game's own item table
 ITEM_NAMES = {
@@ -2192,6 +2221,15 @@ local function door_name(id, kind)
 	if kind == 0 then
 		local here = map_code()
 		if name and m and here and m[1]:sub(1, 3) == here:sub(1, 3) and name:match("^Lv %d") then return "passage" end
+		-- the game's part names ("Exterior", "Interior - Lv 1") mean nothing on their own:
+		-- in another area say the area ("exit to Mountain Pass"), in this one say "outside"
+		if name and m and (name:match("^Exterior") or name:match("^Interior") or name:match("^Lv %d")) then
+			if here and m[1]:sub(1, 3) == here:sub(1, 3) then
+				if name:match("^Exterior") then return "exit outside" end
+			elseif AREAS[m[1]:sub(1, 3)] then
+				name = AREAS[m[1]:sub(1, 3)]
+			end
+		end
 		return name and ("exit to " .. name) or "exit"
 	end
 	if m and m[1]:match("^R0") then name = "Quester's Rest" end        -- the inn's own maps
@@ -2206,6 +2244,7 @@ local function door_name(id, kind)
 	if name == "Well" or name == "Cave" then return name end
 	return name and (name .. " door") or "door"
 end
+door_name_g = door_name
 function door_gimmick_near(x, z, id)
 	local base, n = u32(0x020FB480), u32(0x020FB484)
 	if n == 0 or n > 200 or not inram(base, n * 0x74) then return id == nil end
@@ -4052,6 +4091,8 @@ function reach_mark(list)
 	local ok, R = pcall(reach_region, n, px, py, pz)
 	if ok and R and R.truncated then n.reach_big = true end
 	if not ok or not R or R.truncated then return list end
+	-- a scrap of floor (lying in bed, standing on a table in a scene): no telling yet
+	if (R.count or 0) < 16 then return list end
 	for _, it in ipairs(list) do
 		-- (exits are left alone: they are boxes at the map's edge you walk out through)
 		if not it.mark and it.kind ~= 0 then
@@ -4188,6 +4229,7 @@ local function start_walk()
 	if not px then say("Cannot walk right now.") return end
 	if reach_mark and it.code == map_code() then reach_mark({ it }) end
 	if it.unreachable then say(unreachable_msg(it), true) return end
+	if BEACON then BEACON = nil end      -- an auto walk takes over from the beacon
 	-- a door the story keeps locked for now: no use walking into it (one with a keyhole: you
 	-- may have the key, so go)
 	if it.locked and not it.lock_key then say(it.label:gsub("^%l", string.upper) .. ". It will not open yet.", true) return end
@@ -4195,7 +4237,8 @@ local function start_walk()
 	local nv0 = nav_for()
 	if nv0 then nv0.bb = {} end
 	walk = { x = it.x, z = it.z, tx0 = it.x, tz0 = it.z, gy = it.y0 and (it.y0 + 1) or nil, label = it.label, obj = it.obj, posoff = it.posoff or 0x24, start = frame, code = map_code(), sx = px, sz = pz,
-	         best = 1e9, progress = frame, side = 1, side_until = 0, tries = 0, push = 0, exit = (it.kind == 0) or nil, place = place_key() }
+	         best = 1e9, progress = frame, side = 1, side_until = 0, tries = 0, push = 0, exit = (it.kind == 0) or nil, place = place_key(),
+	         person = (it.obj and not it.thing and not it.item and not it.monster) or nil }
 	if it.nx then
 		-- a door: its thin side faces the way in. Start from the side you are on.
 		-- (a door in front of its exit box is always entered from the door's own side)
@@ -4445,14 +4488,32 @@ local function walk_step(host_pressed)
 		end
 		if (walk.rem or 0) > 1.0 and walk.stage ~= "in" then
 			-- the route could not reach it (a shop counter, a fence): turn to face it and stop here
+			-- someone close by, straight up, down, left or right: most likely across a counter,
+			-- and the game lets you talk across one, so face them square on
+			local ux, uz, rx, rz = screen_axes()
+			local f, r = dx * ux + dz * uz, dx * rx + dz * rz
+			local square = walk.person and math.sqrt(dx * dx + dz * dz) < 3.3 and math.min(math.abs(f), math.abs(r)) < 0.8
+			local face = math.abs(f) >= math.abs(r) and (f >= 0 and "up" or "down") or (r >= 0 and "right" or "left")
 			walk.final = walk.final or frame + 12
 			if frame < walk.final then
-				pcall(function() joypad.set(DIRS[dir_toward(dx, dz) + 1]) end)
+				local dir = dir_toward(dx, dz)
+				if square then
+					local fx, fz
+					if face == "up" then fx, fz = ux, uz elseif face == "down" then fx, fz = -ux, -uz
+					elseif face == "right" then fx, fz = rx, rz else fx, fz = -rx, -rz end
+					dir = dir_toward(fx, fz)
+				end
+				pcall(function() joypad.set(DIRS[dir + 1]) end)
 				return
 			end
 			local label, tx, tz = walk.label, walk.x, walk.z
 			stop_walk()
-			say("As close as you can get. " .. label:gsub("^%l", string.upper) .. " is " .. directions_to(tx, tz) .. ".", true)
+			if square then
+				pcall(sound.play, "chime", 0, 0, -0.5, 0.8)
+				say("As close as you can get. " .. label:gsub("^%l", string.upper) .. " is " .. directions_to(tx, tz) .. ", most likely across a counter. Facing " .. face .. ". Press A to talk.", true)
+			else
+				say("As close as you can get. " .. label:gsub("^%l", string.upper) .. " is " .. directions_to(tx, tz) .. ".", true)
+			end
 			return
 		end
 	end
@@ -4851,10 +4912,11 @@ end
 battle_actor_since, battle_actor_seen = 0, nil
 battle_actor_text, battle_actor_frame, battle_start_frame = nil, -1000, nil
 function watch_battle_actor()
-	if not in_battle() then battle_actor_said, battle_actor_seen, battle_start_frame = nil, nil, nil return end
+	if not in_battle() then battle_actor_said, battle_actor_seen, battle_start_frame, battle_fight_seen = nil, nil, nil, nil return end
 	battle_start_frame = battle_start_frame or frame
 	-- back at Fight / Examine / Flee: the first fighter's turn is news again
-	if menu_raw_seen:find("<N=0>Fight</N>", 1, true) then battle_actor_said = nil end
+	if menu_raw_seen:find("<N=0>Fight</N>", 1, true) then battle_actor_said, battle_fight_seen = nil, true end
+	if not battle_fight_seen then return end
 	-- the list left over from the last battle is not this battle's
 	if last_menu_frame <= battle_start_frame or frame - last_menu_frame < 20 then return end
 	if battle_phase() ~= 3 or not menu_raw_seen:find("<N=0>Attack</N>", 1, true) then return end
@@ -6289,23 +6351,26 @@ function route_step()
 		end
 	end
 	local label = r.it.label
-	local tail
+	local tail, here
 	local last = pts[#pts]
+	local rest = dirs_between(last[1], last[2], r.it.x, r.it.z)
 	if (rem or 0) > 1.5 then
-		local rest = dirs_between(last[1], last[2], r.it.x, r.it.z)
-		tail = "that is as close as the way goes" .. (rest and (". " .. label .. " is then " .. rest) or "")
+		local person = r.it.obj and not r.it.thing and not r.it.item and not r.it.monster
+		local counter = person and rest and (rem or 0) < 3.3 and not rest:find(",") and ", most likely across a counter; face it and press A to talk" or ""
+		tail = "that is as close as the way goes" .. (rest and ("; it is then " .. rest .. counter) or "")
+		here = "you are as close as the way goes" .. (rest and (". It is " .. rest .. counter) or "")
 	elseif r.counter == "sign" then
-		local rest = dirs_between(last[1], last[2], r.it.x, r.it.z)
-		tail = "then face it and press A to read it" .. (rest and (", " .. label .. " is " .. rest) or "")
+		tail = rest and ("then it is " .. rest .. "; face it and press A to read it") or "then face it and press A to read it"
+		here = rest and ("it is " .. rest .. "; face it and press A to read it") or "face it and press A to read it"
 	elseif r.counter then
-		local rest = dirs_between(last[1], last[2], r.it.x, r.it.z)
-		tail = "then talk across the counter" .. (rest and (", " .. label .. " is " .. rest) or "")
+		tail = rest and ("then it is " .. rest .. " across the counter; face it and press A to talk") or "then talk across the counter"
+		here = rest and ("it is " .. rest .. " across the counter; face it and press A to talk") or "talk across the counter"
 	elseif r.it.nx or r.it.kind == 1 then
 		tail = r.it.kind == 1 and "then walk into the door" or "then walk on through"
 	else
 		tail = "then you are there"
 	end
-	if #words == 0 then say(label .. ": " .. tail .. ".", true) return end
+	if #words == 0 then say(label:gsub("^%l", string.upper) .. ": " .. (here or tail) .. ".", true) return end
 	local more = ""
 	if #words > 8 then
 		for i = #words, 9, -1 do table.remove(words, i) end
@@ -6340,6 +6405,7 @@ function beacon_plan(b, nv, px, py, pz)
 end
 function beacon_start(it, gx, gz, nv, avoid, counter)
 	local px, py, pz = player_pos()
+	walk = nil                 -- the beacon takes over from an auto walk: you walk yourself now
 	BEACON = { it = it, label = it.label, gx = gx, gz = gz, gy = it.y0 and (it.y0 + 1) or nil, avoid = avoid, counter = counter,
 	           code = map_code(), path = nil, pi = 1, next_knock = frame, best = 1e9, progress = frame,
 	           obj = (not counter) and it.obj or nil, posoff = it.posoff or 0x24, moved = frame }
@@ -6378,6 +6444,22 @@ function beacon_step()
 	end
 	-- arrived
 	local gd = math.sqrt((b.gx - px) ^ 2 + (b.gz - pz) ^ 2)
+	-- the way ends short of it (a counter, a fence) and you are at that end: stop here
+	local endp = b.path and b.path[#b.path]
+	if not b.co and (b.rem or 0) > 1.5 and endp and ((endp[1] - px) ^ 2 + (endp[2] - pz) ^ 2) < 0.64
+		and gd >= (b.it.obj and 1.2 or 0.8) then
+		pcall(sound.play, "chime", 0, 0, -0.5, 0.8)
+		local ux, uz, rx, rz = screen_axes()
+		local f, r = (b.gx - px) * ux + (b.gz - pz) * uz, (b.gx - px) * rx + (b.gz - pz) * rz
+		local face = math.abs(f) >= math.abs(r) and (f >= 0 and "up" or "down") or (r >= 0 and "right" or "left")
+		local person = b.it.obj and not b.it.thing and not b.it.item and not b.it.monster
+		local msg = "As close as the way goes. " .. b.label:gsub("^%l", string.upper) .. " is " .. directions_to(b.gx, b.gz)
+		if person and gd < 3.3 and math.min(math.abs(f), math.abs(r)) < 0.8 then
+			msg = msg .. ", most likely across a counter. Face " .. face .. " and press A to talk"
+		end
+		beacon_stop(msg .. ".")
+		return
+	end
 	if gd < (b.it.obj and 1.2 or 0.8) then
 		pcall(sound.play, "chime", 0, 0, -0.5, 0.8)
 		-- which way to face: up, down, left or right on the screen
@@ -6391,6 +6473,7 @@ function beacon_step()
 		elseif b.counter then what = ". Face " .. face .. " and press A to talk across the counter"
 		elseif b.it.kind == 1 then what = ". Walk " .. face .. " into the door"
 		elseif b.it.kind == 0 then what = ". Walk " .. face .. " to go through"
+		elseif b.it.monster then what = ". It is " .. face .. " from you; walk into it to fight"
 		elseif b.it.obj and not b.it.thing then what = ". Face " .. face .. " and press A to talk"
 		else what = ". It is " .. face .. " from you; face it and press A" end
 		beacon_stop("Arrived at " .. b.label .. what .. ".")
@@ -6832,6 +6915,9 @@ while true do
 		elseif last_button_name == "a" and equip_state and equip_state:sub(1, 4) == "grid" then equip_popup_arm = frame end
 	end
 	pad_prev = pad
+	-- A pressed once a battle is under way: on Fight, so the command list after it is this battle's
+	if last_button_frame == frame and last_button_name == "a" and battle_start_frame and frame > battle_start_frame + 2
+		and in_battle() then battle_fight_seen = true end
 
 	local ok, err = pcall(function()
 		-- remember experience only out in the world with no message up (the reward is added
