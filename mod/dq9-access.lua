@@ -60,6 +60,11 @@ SAY_POSITION_IN_MENUS = true   -- add "2 of 6" after a menu option
 ALERTS_ON = true               -- wall bumps
 NEARBY_ALERTS = false          -- people and monsters coming close (true: say them)
 DIR = ACCESS_DIR or (DQIX_PC and "access/" or "")   -- the mod's folder (the PC game says where it is)
+-- the mod's sounds (Mod settings, at the end of the Misc. menu; kept in dq9-access-settings.txt)
+WALK_BEEP_ON = true
+WALK_BEEP_VOL = 6              -- 0 to 10
+BEACON_VOL = 8                 -- 0 to 10
+TURN_CHIME_ON = true
 PLACES_FILE = DIR .. "dq9-access-places.txt"
 LOG_FILE = DIR .. "dq9-access-log.txt"
 
@@ -871,6 +876,8 @@ local function read_menu()
 	-- while the battle is waiting for your command.
 	if in_battle() and (battle_phase() ~= 3 or frame - last_button_frame > 30) then return end
 	local items, count, title = parse_menu(m)
+	-- the Misc. menu has one more item, the mod's own settings, after the last (misc_step)
+	if joypad.getraw and m:find("^<CURSOR=%d+>Misc%.") then count = count + 1 end
 	pcall(mon_label_list, items, m)
 	-- The little Equip / Move / Discard / Cancel list on the equipment screen. Its text stays in
 	-- this buffer afterwards, and the list of who to equip moves the old cursor through it.
@@ -6338,7 +6345,7 @@ function beacon_step()
 		b.pi = b.pi + 1
 		wp = path[b.pi]
 		b.best, b.progress = 1e9, frame
-		if wp then pcall(sound.play, "chime", 0, 0, -0.5, 0.35) end
+		if wp and TURN_CHIME_ON then pcall(sound.play, "chime", 0, 0, -0.5, 0.45 * BEACON_VOL / 10) end
 	end
 	local tx, tz = b.gx, b.gz
 	if wp then tx, tz = wp[1], wp[2] end
@@ -6365,12 +6372,12 @@ function beacon_step()
 		local hd = math.max(0.6, math.min(d, 12))
 		local sx, sz = math.sin(ang) * hd, -math.cos(ang) * hd
 		local behind = math.abs(ang) > 1.75
-		pcall(sound.play, "knock", sx, 0, sz, 1.0, behind and 0.7 or 1.0)
+		pcall(sound.play, "knock", sx, 0, sz, 1.25 * BEACON_VOL / 10, behind and 0.7 or 1.0)
 		if math.abs(ang) < 0.25 then b.lock_at, b.lock_pos = frame + 4, { sx, sz } end
 		b.next_knock = frame + math.floor(60 * math.max(0.18, math.min(1.1, 0.12 + d * 0.09)) + 0.5)
 	end
 	if b.lock_at and frame >= b.lock_at then
-		pcall(sound.play, "lock", b.lock_pos[1], 0, b.lock_pos[2], 0.7)
+		pcall(sound.play, "lock", b.lock_pos[1], 0, b.lock_pos[2], 0.9 * BEACON_VOL / 10)
 		b.lock_at = nil
 	end
 end
@@ -6383,7 +6390,7 @@ end
 -- crow flies), and quiet once you are there.
 WALK_BEEP_NEXT = 0
 function walk_beep()
-	if not walk or not sound then WALK_BEEP_NEXT = 0 return end
+	if not walk or not sound or not WALK_BEEP_ON then WALK_BEEP_NEXT = 0 return end
 	local px, _, pz = player_pos()
 	if not px or frame < WALK_BEEP_NEXT then return end
 	local left
@@ -6399,8 +6406,178 @@ function walk_beep()
 	else
 		left = math.sqrt(((walk.tx0 or walk.x) - px) ^ 2 + ((walk.tz0 or walk.z) - pz) ^ 2)
 	end
-	pcall(sound.play, "beep", 0, 0, -1, 0.55)
+	if WALK_BEEP_ON and WALK_BEEP_VOL > 0 then pcall(sound.play, "beep", 0, 0, -1, 0.92 * WALK_BEEP_VOL / 10) end
 	WALK_BEEP_NEXT = frame + math.floor(60 * math.max(0.1, math.min(1.0, 0.08 + left * 0.045)) + 0.5)
+end
+
+------------------------------------------------------------------------------ mod settings --
+-- An extra item at the end of the game's Misc. menu: "Mod settings". Down from the last item
+-- (Quick Save) or up from the first (Heal All) gets to it, as the menu wraps round; A opens the
+-- mod's settings. While you are on it, or in the settings, the game does not get the D-pad, A
+-- or B (the buttons are read as you press them: joypad.getraw).
+SETTINGS_FILE = DIR .. "dq9-access-settings.txt"
+SETTINGS = {
+	{ name = "Auto walk beep", get = function() return WALK_BEEP_ON end, set = function(v) WALK_BEEP_ON = v end, key = "walk_beep" },
+	{ name = "Auto walk beep volume", level = true, get = function() return WALK_BEEP_VOL end, set = function(v) WALK_BEEP_VOL = v end, key = "walk_beep_volume" },
+	{ name = "Beacon volume", level = true, get = function() return BEACON_VOL end, set = function(v) BEACON_VOL = v end, key = "beacon_volume" },
+	{ name = "Beacon chime at each turn", get = function() return TURN_CHIME_ON end, set = function(v) TURN_CHIME_ON = v end, key = "turn_chime" },
+	{ name = "Test the beacon on headphones", action = "test" },
+	{ name = "Blocked alert, when you walk into something", get = function() return ALERTS_ON end, set = function(v) ALERTS_ON = v end, key = "blocked_alert" },
+	{ name = "Say the position in menus, such as 2 of 6", get = function() return SAY_POSITION_IN_MENUS end, set = function(v) SAY_POSITION_IN_MENUS = v end, key = "menu_position" },
+	{ name = "Say people and monsters coming close", get = function() return NEARBY_ALERTS end, set = function(v) NEARBY_ALERTS = v end, key = "nearby_alerts" },
+	{ name = "Close", action = "close" },
+}
+function settings_load()
+	local f = io.open(SETTINGS_FILE, "r")
+	if not f then return end
+	for line in f:lines() do
+		local k, v = line:match("^%s*([%w_]+)%s*=%s*(%S+)")
+		for _, s in ipairs(SETTINGS) do
+			if s.key and s.key == k then
+				if s.level then local n = tonumber(v) if n then s.set(math.max(0, math.min(10, math.floor(n)))) end
+				else s.set(v == "on" or v == "true") end
+			end
+		end
+	end
+	f:close()
+end
+function settings_save()
+	local f = io.open(SETTINGS_FILE, "w")
+	if not f then return end
+	f:write("# DQ9 Access settings (Mod settings, at the end of the game's Misc. menu)\n")
+	for _, s in ipairs(SETTINGS) do
+		if s.key then
+			local v = s.get()
+			f:write(s.key .. " = " .. (s.level and tostring(v) or (v and "on" or "off")) .. "\n")
+		end
+	end
+	f:close()
+end
+function setting_text(s, i)
+	local t = s.name
+	if s.get then
+		local v = s.get()
+		t = t .. ", " .. (s.level and tostring(v) or (v and "on" or "off"))
+	end
+	return t .. ", " .. i .. " of " .. #SETTINGS
+end
+MS = { on_item = false, open = false, sel = 1, prev = {}, inject = nil, test = nil }
+MS_BUTTONS = { "Up", "Down", "Left", "Right", "A", "B" }
+function misc_menu_now()
+	if u8(0x02109DA4) == 1 then return nil end
+	local m = cstring(MENU, 700)
+	if not m:find("^<CURSOR=%d+>Misc%.") then return nil end
+	local cursor = tonumber(m:match("^<CURSOR=(%d+)>"))
+	local count = 0
+	for _ in m:gmatch("<N=%d+>") do count = count + 1 end
+	if count == 0 then return nil end
+	return cursor, count
+end
+function misc_say_item(cursor, count)
+	local m = cstring(MENU, 700)
+	local name = m:match("<N=" .. cursor .. ">(.-)</N>")
+	name = name and clean(name) or "item"
+	say(name .. (SAY_POSITION_IN_MENUS and (", " .. (cursor + 1) .. " of " .. (count + 1)) or ""), true)
+end
+function ms_say_item(count)
+	say("Mod settings" .. (SAY_POSITION_IN_MENUS and (", " .. (count + 1) .. " of " .. (count + 1)) or ""), true)
+end
+-- the beacon test: a knock in front, to the right, behind and to the left, each said first
+function ms_test_step()
+	local t = MS.test
+	if not t or frame < t.next then return end
+	local spots = { { "In front.", 0, -2 }, { "To the right.", 2, 0 }, { "Behind.", 0, 2 }, { "To the left.", -2, 0 } }
+	local spot = spots[t.spot]
+	if not spot then MS.test = nil say("Done.") return end
+	if t.knock == 0 then say(spot[1], true) t.knock, t.next = 1, frame + 50 return end
+	pcall(sound.play, "knock", spot[2], 0, spot[3], 1.25 * BEACON_VOL / 10, spot[3] > 0.5 and 0.7 or 1.0)
+	t.knock = t.knock + 1
+	t.next = frame + 26
+	if t.knock > 3 then t.spot, t.knock, t.next = t.spot + 1, 0, frame + 40 end
+end
+function misc_step()
+	if not joypad.getraw then return end
+	ms_test_step()
+	local cursor, count = misc_menu_now()
+	if not cursor then
+		if MS.open or MS.on_item then MS.open, MS.on_item = false, false end
+		MS.inject = nil
+		return
+	end
+	local ok, raw = pcall(joypad.getraw)
+	if not ok or type(raw) ~= "table" then return end
+	local edge = {}
+	for _, b in ipairs(MS_BUTTONS) do edge[b] = raw[b] and not MS.prev[b] MS.prev[b] = raw[b] end
+	-- a button pressed for the mod stays away from the game until you let go of it
+	MS.held = MS.held or {}
+	local keep = {}
+	for b in pairs(MS.held) do if raw[b] then keep[b] = false else MS.held[b] = nil end end
+	if next(keep) then pcall(joypad.set, keep) end
+	local function used(b) MS.held[b] = true end
+	-- a press made for you (moving the game's cursor round the end of the list)
+	if MS.inject then
+		local i = MS.inject
+		pcall(joypad.set, { [i.button] = true })
+		i.frames = i.frames - 1
+		if i.frames <= 0 then MS.inject = nil end
+		return
+	end
+	local last = count - 1
+	if MS.open then
+		pcall(joypad.set, { Up = false, Down = false, Left = false, Right = false, A = false, B = false })
+		for _, b in ipairs(MS_BUTTONS) do if edge[b] then used(b) end end
+		local s = SETTINGS[MS.sel]
+		if edge.Down then MS.sel = MS.sel % #SETTINGS + 1 say(setting_text(SETTINGS[MS.sel], MS.sel), true)
+		elseif edge.Up then MS.sel = (MS.sel - 2) % #SETTINGS + 1 say(setting_text(SETTINGS[MS.sel], MS.sel), true)
+		elseif (edge.Left or edge.Right) and s.get then
+			if s.level then s.set(math.max(0, math.min(10, s.get() + (edge.Right and 1 or -1))))
+			else s.set(not s.get()) end
+			settings_save()
+			say(s.level and tostring(s.get()) or (s.get() and "on" or "off"), true)
+			if s.level and sound then
+				if s.key == "beacon_volume" then pcall(sound.play, "knock", 0, 0, -2, 1.25 * BEACON_VOL / 10)
+				else pcall(sound.play, "beep", 0, 0, -1, 0.92 * WALK_BEEP_VOL / 10) end
+			end
+		elseif edge.A then
+			if s.action == "close" then MS.open = false ms_say_item(count)
+			elseif s.action == "test" then
+				if sound and select(2, pcall(sound.ready)) then MS.test = { spot = 1, knock = 0, next = frame }
+				else say("No 3D sound: openal_soft.dll is missing, or the game part of the mod needs installing.", true) end
+			elseif s.get then
+				if s.level then s.set(s.get() >= 10 and 0 or s.get() + 1) else s.set(not s.get()) end
+				settings_save()
+				say(s.level and tostring(s.get()) or (s.get() and "on" or "off"), true)
+			end
+		elseif edge.B then MS.open = false ms_say_item(count) end
+		return
+	end
+	if MS.on_item then
+		pcall(joypad.set, { Up = false, Down = false, A = false })
+		if edge.A then used("A") end
+		if edge.Down then
+			MS.on_item = false
+			used("Down")
+			if cursor == last then MS.inject = { button = "Down", frames = 4 } else misc_say_item(cursor, count) end
+		elseif edge.Up then
+			MS.on_item = false
+			used("Up")
+			if cursor == 0 then MS.inject = { button = "Up", frames = 4 } else misc_say_item(cursor, count) end
+		elseif edge.A then
+			MS.open = true
+			say("Mod settings. Up and down choose, left and right or A change, B goes back. " .. setting_text(SETTINGS[MS.sel], MS.sel), true)
+		end
+		return
+	end
+	-- on the last item: down goes to Mod settings; on the first: up does
+	local hold = {}
+	if cursor == last then hold.Down = false end
+	if cursor == 0 then hold.Up = false end
+	if next(hold) then pcall(joypad.set, hold) end
+	if (cursor == last and edge.Down) or (cursor == 0 and edge.Up) then
+		used(edge.Down and "Down" or "Up")
+		MS.on_item = true
+		ms_say_item(count)
+	end
 end
 
 HELP = "R repeat. Control stops speech. W where am I. H health. M magic. L next attribute, one at a time, Shift L previous. U equipment. G gold. I last information. O all menu options. " ..
@@ -6496,6 +6673,7 @@ if not game_ok() then
 end
 
 load_places()
+pcall(settings_load)
 menu_raw_done = cstring(MENU, 2400)     -- do not read out a menu left over from before the script started
 menu_raw_seen, menu_seen_count = menu_raw_done, 2
 -- the message buffer keeps the last message after its box closes, so do not read it out at start
@@ -6597,6 +6775,7 @@ while true do
 		PT("route_step") route_step()
 		beacon_step()
 		walk_beep()
+		misc_step()
 		PT("nav_prefetch") nav_prefetch()
 
 		PT(nil)	end)

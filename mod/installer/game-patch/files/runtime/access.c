@@ -31,6 +31,7 @@
 
 int g_access_on;
 uint16_t g_access_keys_on, g_access_keys_off;
+uint16_t g_keys_raw;
 
 static lua_State* L;
 static lua_State* g_co;          /* the script's coroutine */
@@ -141,6 +142,15 @@ static int jp_get(lua_State* l) {
     lua_createtable(l, 0, N_BUTTONS);
     for (int i = 0; i < N_BUTTONS; i++) {
         lua_pushboolean(l, (g_keys_down >> BUTTONS[i].bit) & 1);
+        lua_setfield(l, -2, BUTTONS[i].name);
+    }
+    return 1;
+}
+/* the buttons as you pressed them, even ones the script is holding back from the game */
+static int jp_getraw(lua_State* l) {
+    lua_createtable(l, 0, N_BUTTONS);
+    for (int i = 0; i < N_BUTTONS; i++) {
+        lua_pushboolean(l, (g_keys_raw >> BUTTONS[i].bit) & 1);
         lua_setfield(l, -2, BUTTONS[i].name);
     }
     return 1;
@@ -282,7 +292,7 @@ static void load_script(void) {
         { NULL, NULL } };
     static const luaL_Reg mem[] = {
         { "read_u8", m_u8 }, { "read_u16_le", m_u16 }, { "read_u32_le", m_u32 }, { "read_s32_le", m_s32 }, { NULL, NULL } };
-    static const luaL_Reg jp[] = { { "get", jp_get }, { "set", jp_set }, { NULL, NULL } };
+    static const luaL_Reg jp[] = { { "get", jp_get }, { "getraw", jp_getraw }, { "set", jp_set }, { NULL, NULL } };
     static const luaL_Reg in[] = { { "get", in_get }, { NULL, NULL } };
     static const luaL_Reg sp[] = { { "say", sp_say }, { "stop", sp_stop }, { "engine", sp_engine }, { NULL, NULL } };
     static const luaL_Reg con[] = { { "log", con_log }, { "writeline", con_log }, { "clear", nothing }, { NULL, NULL } };

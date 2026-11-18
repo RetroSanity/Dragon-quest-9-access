@@ -267,10 +267,11 @@ index 9c06fb0..0c1b9c6 100644
  
  typedef struct { uint64_t frame; uint32_t keys; int touch; int tx, ty; uint32_t len; } Press;
  
-@@ -258,6 +259,10 @@ void input_update(void) {
+@@ -258,6 +259,11 @@ void input_update(void) {
          since = g_walk_frames > 0 ? 0 : since + 1;
          g_gx_hide = since < 8 && !g_fe_touch ? (g_gx_hide | 1) : (g_gx_hide & ~1);
      }
++    g_keys_raw = g_keys_down;                           /* the buttons as pressed, before the Access mod holds any back */
 +    if (g_access_keys_on | g_access_keys_off) {           /* the Access mod pressing the D-pad (auto walk): this frame only */
 +        g_keys_down = (uint16_t)((g_keys_down | g_access_keys_on) & ~g_access_keys_off);
 +        g_access_keys_on = g_access_keys_off = 0;

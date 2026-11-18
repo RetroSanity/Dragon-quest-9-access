@@ -263,6 +263,12 @@ CHANGES IN 0.4
   so a door that opens later in the story, or one you have unlocked, is no longer called locked.
   A door with a keyhole also says which key opens it ("opens with the Magic Key").
   Auto walk to a door that will not open yet tells you so instead of walking there.
+- Mod settings: a new item at the end of the game's Misc. menu, after Quick Save (down from Quick
+  Save, or up from Heal All, as the menu wraps round). A opens it; up and down choose, left and
+  right or A change, B goes back. Auto walk beep on or off and its volume, the beacon's volume,
+  the beacon's chime at each turn, a test of the beacon on headphones (a knock in front, to the
+  right, behind and to the left), the blocked alert, saying the position in menus, and saying
+  people and monsters coming close. Kept in dq9-access-settings.txt.
 - 3D beacon, to walk somewhere yourself (left trigger and press in the right stick, or F; the
   same again stops it): pick something on the list and follow a knock placed all round you on
   headphones. The knock comes from where the next turn of the way is: faster the nearer it is,
