@@ -261,6 +261,11 @@ CHANGES IN 0.4
   so a door that opens later in the story, or one you have unlocked, is no longer called locked.
   A door with a keyhole also says which key opens it ("opens with the Magic Key").
   Auto walk to a door that will not open yet tells you so instead of walking there.
+- The object list names every thing from the game's own words for it, all through the game:
+  signs and what they say ("sign: East of here lies Stornway"), statues, gravestones, books,
+  mirrors, beds, things to pick up ("horse manure, to pick up"), lifts and so on, even before you
+  have looked at them. Spots that only say a door is locked are left out (the door list says
+  so), and so are unnamed spots right where a person stands behind a counter.
 - A person the game names (Apus Major, Aquila ...) speaking no longer gives their name to whoever
   stands nearest you; a name wrongly learned that way before is dropped.
 - Things in other rooms: one area of the game can hold several rooms joined only through another

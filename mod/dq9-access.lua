@@ -2532,6 +2532,27 @@ function npc_game_name(o)
 end
 -- story models that are things, not characters
 STORY_THINGS = { s097 = "shiny object" }
+-- What each thing is, from the game's talk files (dq9-access-objects.lua): by area and the number
+-- in its placement record, sometimes by story chapter (the talk files are lettered A, B ... by
+-- chapter). "-" is a spot that only says a door is locked.
+pcall(dofile, DIR .. "dq9-access-objects.lua")
+function obj_label(o)
+	if not OBJ_LABELS then return nil end
+	local r = u32(o + 0x0C)
+	if not inram(r, 0x20) then return nil end
+	local c = map_code()
+	if not c then return nil end
+	local t = OBJ_LABELS[c:sub(1, 3)] or (c:sub(1, 1) == "F" and OBJ_LABELS.F)
+	local e = t and t[u8(r)]
+	if type(e) ~= "table" then return e end
+	local now = string.char(64 + math.max(1, math.min(26, story_now() // 100)))
+	local best, bl, first, fl = nil, nil, nil, nil
+	for L, v in pairs(e) do
+		if L <= now and (not bl or L > bl) then best, bl = v, L end
+		if not fl or L < fl then first, fl = v, L end
+	end
+	return best or first
+end
 local function characters()
 	local list = {}
 	local n = u32(OBJ_COUNT)
@@ -2563,6 +2584,13 @@ local function characters()
 					if label:find("reads the sign", 1, true) then label = "sign"
 					else label = label:gsub("^someone who says", "something that says") end
 				end
+				-- a thing: what the game's own words say it is (unless you have read it already)
+				local skip = false
+				if not person and not story then
+					local tl = obj_label(o)
+					if tl == "-" then skip = true
+					elseif tl and (not label or label:find("^something")) then label = tl end
+				end
 				-- (a game name learned by mistake for someone standing next to its owner)
 				if label and not gname and person and key and people[key] == label then
 					local c = map_code()
@@ -2577,7 +2605,9 @@ local function characters()
 				if key and object_name(key) then label = object_name(key) end
 				-- some story models are things to pick up, not people (the lost ring in the grass)
 				local sthing = story and STORY_THINGS[model:sub(1, 4)]
-				if sthing then
+				if skip then
+					-- (left out)
+				elseif sthing then
 					list[#list + 1] = { label = sthing, x = x, z = z, obj = o, key = key, thing = true, item = true, posoff = 0x64 }
 				else
 				-- signs and statues face one way (+0x34, 0x10000 to a turn; 0 faces +z): the side
@@ -2589,7 +2619,19 @@ local function characters()
 			end
 		end
 	end
-	return list
+	-- an unnamed spot right where a person stands (the talk spot behind a counter): the person
+	-- is already on the list
+	local out = {}
+	for _, c in ipairs(list) do
+		local dup = false
+		if c.thing and c.label == "something" then
+			for _, d in ipairs(list) do
+				if not d.thing and math.abs(d.x - c.x) < 0.5 and math.abs(d.z - c.z) < 0.5 then dup = true break end
+			end
+		end
+		if not dup then out[#out + 1] = c end
+	end
+	return out
 end
 
 -- Things you can search (cupboards, pots, barrels, chests ...): the map's list of "gimmicks".
