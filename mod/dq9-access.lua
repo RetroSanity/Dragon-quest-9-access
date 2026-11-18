@@ -2842,8 +2842,7 @@ function doors_named_g()
 	local ds = {}
 	for _, d in ipairs(doors()) do ds[#ds + 1] = d end
 	for _, d in ipairs(town_doors()) do ds[#ds + 1] = d end
-	name_doors_by_side(ds)
-	rename_doors(ds)
+	name_doors(ds)
 	return ds
 end
 -- Doors named after where they go, by place ("map code#map id") and where the door stands.
@@ -2852,18 +2851,219 @@ DOOR_NAMES_AT = {
 	["X01M05#4105"] = {
 		{ -3.25, -11.9, "prayer room door, left" },        -- the save point: the angel with a ponytail
 		{ 3.25, -11.9, "prayer room door, right" },
-		{ -8.5, -13.8, "locked door, top left" },
-		{ -13.0, -6.9, "locked door, left, upper" },
-		{ 13.0, -7.9, "locked door, right, upper" },
-		{ 17.25, 10.65, "locked door, right, lower" },
-		{ 0.0, 8.0, "locked door, bottom middle" },
 		{ -12.5, 15.1, "study door" },                    -- bookshelves, a desk, stairs up
 		{ 12.25, 15.1, "storeroom door" },                -- pots, a barrel, stairs up
-		{ -17.0, 10.65, "left door, lower, behind a wall" },
+		{ -17.0, 10.65, "door behind a wall, lower left" },
 	},
 }
--- every plain door of a place leads to the same one: "door back to the main hall (top right)"
+-- every plain door of a place leads to the same one
 DOOR_NAMES_ALL = { ["X01M05#4106"] = "door back to the main hall" }
+
+-- What is behind each door and whether it is locked, from the game's own data: the names come
+-- from dq9-access-doors.lua (made from the map files: the room on the other side, its stairs,
+-- chests and shelves), and the locks from the game's trigger rules for each door, checked
+-- against the story so far and the game's event flags, so a door that has been opened since
+-- is not called locked.
+pcall(dofile, DIR .. "dq9-access-doors.lua")
+STORY_BASE = 0x02108844
+KEY_NAMES = { "the Thief's Key", "the Magic Key", "the Ultimate Key" }
+function story_now()
+	local ch, st = u32(STORY_BASE + 0x488), u32(STORY_BASE + 0x48C)
+	if ch < 1 or ch > 30 or st > 99 then ch, st = u8(STORY_BASE), u8(STORY_BASE + 1) end
+	return ch * 100 + st
+end
+function flag_bit(addr, n)
+	if n < 0 then return false end
+	return (u8(addr + (n >> 3)) & (1 << (n & 7))) ~= 0
+end
+-- one condition of a door rule (code * 65536 + number)
+function door_cond(c)
+	local op, n = c // 65536, c % 65536
+	local slot = u8(STORY_BASE + 0x332)
+	if op == 0 then return flag_bit(STORY_BASE + 0x8C, n)
+	elseif op == 1 then return not flag_bit(STORY_BASE + 0x8C, n)
+	elseif op == 2 then return flag_bit(STORY_BASE + slot * 0x1C + 3, n)
+	elseif op == 3 then return not flag_bit(STORY_BASE + slot * 0x1C + 3, n)
+	elseif op == 4 then return flag_bit(STORY_BASE + slot * 0x1C + 0x10, n)
+	elseif op == 5 then return not flag_bit(STORY_BASE + slot * 0x1C + 0x10, n)
+	elseif op == 0x17 then return n == 0 or n == 2       -- playing on your own (not a guest)
+	end
+	return false        -- carrying a key, and the rest: not counted
+end
+-- is this door (its part numbers) locked right now? -> nil, or true and the key that opens it
+function door_lock(mapid, gids)
+	local db = DOOR_LOCKS and DOOR_LOCKS[mapid]
+	if not db or not gids then return nil end
+	local now = story_now()
+	local locked, key = false, nil
+	for _, gid in ipairs(gids) do
+		local rules = db[gid]
+		if rules then
+			local first = nil
+			for _, r in ipairs(rules) do
+				if now >= r[1] and now <= r[2] then
+					if not first then
+						local ok = true
+						for _, c in ipairs(r[3]) do if not door_cond(c) then ok = false break end end
+						if ok then first = r[4] end
+					end
+					if r[4] == "u" and r[5] > 0 then key = math.min(key or 9, r[5]) end
+				end
+			end
+			if first == "l" then locked = true end
+		end
+	end
+	if not locked then return nil end
+	return true, key
+end
+-- the door part numbers of the door nearest a spot (a double door has two parts); id: the place
+-- it leads to, when known
+function door_gids_at(x, z, r, id)
+	local out = {}
+	local base, n = u32(GIMMICK_PTR), u32(GIMMICK_COUNT)
+	if n == 0 or n > 200 or not inram(base, n * 0x74) then return out end
+	local bx, bz, bd = nil, nil, r
+	for k = 0, n - 1 do
+		local g = base + k * 0x74
+		if u32(g + 4) == 2 and (not id or u16(g + 0x30) == id) then
+			local gx, gz = s32(g + 8) / 4096, s32(g + 0x10) / 4096
+			local dd = math.max(math.abs(gx - x), math.abs(gz - z))
+			if dd < bd then bx, bz, bd = gx, gz, dd end
+		end
+	end
+	if not bx then return out end
+	for k = 0, n - 1 do
+		local g = base + k * 0x74
+		if u32(g + 4) == 2 and math.abs(s32(g + 8) / 4096 - bx) < 0.6 and math.abs(s32(g + 0x10) / 4096 - bz) < 0.6 then
+			out[#out + 1] = u8(g + 0x2D)
+		end
+	end
+	return out
+end
+-- side words for doors that would otherwise have the same name: along a line for two or three,
+-- by side of the place for more ("top, left")
+function tell_apart(list)
+	if #list < 2 then return end
+	local x0, x1, z0, z1 = math.huge, -math.huge, math.huge, -math.huge
+	for _, d in ipairs(list) do
+		x0, x1 = math.min(x0, d.x), math.max(x1, d.x)
+		z0, z1 = math.min(z0, d.z), math.max(z1, d.z)
+	end
+	if #list <= 3 then
+		local across = (x1 - x0) >= (z1 - z0)
+		table.sort(list, function(a, b) if across then return a.x < b.x else return a.z < b.z end end)
+		local words = across and { "left", "middle", "right" } or { "upper", "middle", "lower" }
+		for i, d in ipairs(list) do
+			d.label = d.label .. ", " .. ((#list == 2 and i == 2) and words[3] or words[i])
+		end
+		return
+	end
+	local cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
+	local sides = { top = {}, bottom = {}, left = {}, right = {} }
+	for _, d in ipairs(list) do
+		local dx, dz = d.x - cx, d.z - cz
+		local side
+		if math.abs(dx) > math.abs(dz) then side = dx < 0 and "left" or "right" else side = dz < 0 and "top" or "bottom" end
+		table.insert(sides[side], d)
+	end
+	for side, sl in pairs(sides) do
+		local across = (side == "top" or side == "bottom")
+		table.sort(sl, function(a, b) if across then return a.x < b.x else return a.z < b.z end end)
+		local words = across and { "left", "middle", "right" } or { "upper", "middle", "lower" }
+		for i, d in ipairs(sl) do
+			local where = ""
+			if #sl == 2 then where = ", " .. (i == 1 and words[1] or words[3])
+			elseif #sl == 3 then where = ", " .. words[i]
+			elseif #sl > 3 then where = ", " .. i .. " of " .. #sl end
+			d.label = d.label .. ", " .. side .. where
+		end
+	end
+end
+-- all of the naming: by side, after where they lead, hand-made names, told apart, and locked
+function name_doors(ds)
+	name_doors_by_side(ds)
+	local mapid = u16(MAPID)
+	local dest = DOOR_DEST and DOOR_DEST[mapid]
+	for _, d in ipairs(ds) do
+		d.dest_label = nil
+		-- (a name the game shows, or one you have learned by going in, is kept; the game's
+		-- builders' names such as "House A" are not)
+		if d.kind == 1 and dest and (d.base_label == "door" or d.base_label:match("^House [%w]+ door$")) then
+			local best, bd = nil, 1.3
+			for _, e in ipairs(dest) do
+				local dd = math.max(math.abs(d.x - e[1]), math.abs(d.z - e[2]))
+				if d.wx then dd = math.min(dd, math.max(math.abs(d.wx - e[1]), math.abs(d.wz - e[2]))) end
+				if dd < bd then best, bd = e[3], dd end
+			end
+			d.dest_label = best
+		end
+	end
+	-- a door inside this map: the room on the far side from you
+	local sides = DOOR_SIDES and DOOR_SIDES[mapid]
+	local px, _, pz = player_pos()
+	if sides and px then
+		-- the part of the map you can walk to: a side in it is the side you are on
+		local R = nil
+		local nv = nav_ready()
+		if nv and not nv.reach_big then
+			local ok, r = pcall(reach_region, nv, px, select(2, player_pos()), pz, true)
+			if ok and r and not r.truncated then R = r end
+		end
+		for _, d in ipairs(ds) do
+			if d.kind == 1 and not d.dest_label and d.base_label == "door" then
+				for _, e in ipairs(sides) do
+					if math.abs(d.x - e[1]) < 1.0 and math.abs(d.z - e[2]) < 1.0 then
+						local ina = R and reach_near(R, e[3], e[4]) < 0.8
+						local inb = R and reach_near(R, e[6], e[7]) < 0.8
+						if ina and not inb then d.dest_label = e[8]
+						elseif inb and not ina then d.dest_label = e[5]
+						elseif R then
+							-- a door somewhere else: name the room behind it, the smaller of the two
+							d.dest_label = (#e[5] > 0 and e[5]:match("big room")) and e[8] or e[5]
+						else
+							local da = (px - e[3]) ^ 2 + (pz - e[4]) ^ 2
+							local db = (px - e[6]) ^ 2 + (pz - e[7]) ^ 2
+							d.dest_label = da > db and e[5] or e[8]
+						end
+						break
+					end
+				end
+			end
+		end
+	end
+	-- doors named after where they lead: the plain side names are only for the rest
+	local named = {}
+	for _, d in ipairs(ds) do if d.dest_label then d.label = d.dest_label named[#named + 1] = d end end
+	rename_doors(ds)
+	-- the same name twice or more: say where each one is (among the ones you can walk to, and
+	-- apart from that among the ones in other rooms)
+	if reach_mark then pcall(reach_mark, ds) end
+	local groups = {}
+	for _, d in ipairs(ds) do
+		if d.kind == 1 then
+			local k = d.label .. (d.unreachable and "#far" or "")
+			groups[k] = groups[k] or {} table.insert(groups[k], d)
+		end
+	end
+	for _, list in pairs(groups) do tell_apart(list) end
+	-- locked now?
+	for _, d in ipairs(ds) do
+		if d.kind == 1 then
+			local gids = d.gids
+			if not gids then
+				if d.gdoor then gids = door_gids_at(d.x, d.z, 0.6)
+				else gids = door_gids_at(d.wx or d.x, d.wz or d.z, 2.6, d.id) end
+				d.gids = gids
+			end
+			local locked, key = door_lock(mapid, gids)
+			d.locked, d.lock_key = locked, key
+			if locked then
+				if d.label:match("^door") then d.label = "locked " .. d.label else d.label = d.label .. ", locked" end
+				if key then d.label = d.label .. ", opens with " .. KEY_NAMES[key] end
+			end
+		end
+	end
+end
 function rename_doors(ds)
 	local key = (map_code() or ""):sub(1, 6) .. "#" .. u16(MAPID)
 	local list, all = DOOR_NAMES_AT[key], DOOR_NAMES_ALL[key]
@@ -2874,9 +3074,8 @@ function rename_doors(ds)
 			for _, e in ipairs(list or {}) do
 				if math.abs(d.x - e[1]) < 1.0 and math.abs(d.z - e[2]) < 1.0 then d.label, named = e[3], true break end
 			end
-			if not named and all and d.label:match(" door") and d.label ~= "door outside" then
-				local side = d.label:gsub(" door,? ?", " "):gsub("%s+$", "")
-				d.label = all .. " (" .. side .. ")"
+			if not named and all and d.label ~= "door outside" and not d.label:match("^stairs") then
+				d.label = all
 			end
 		end
 	end
@@ -2891,8 +3090,7 @@ local function build_nearby()
 	local ds = {}
 	for _, d in ipairs(doors()) do ds[#ds + 1] = d end
 	for _, d in ipairs(town_doors()) do ds[#ds + 1] = d end
-	name_doors_by_side(ds)
-	rename_doors(ds)
+	name_doors(ds)
 	-- many exits into the same place (the archways all round a tower): list only the nearest
 	local same = {}
 	for _, d in ipairs(ds) do
@@ -3634,10 +3832,10 @@ REACH = nil
 REACH_CELL = 0.5
 REACH_MAX = 20000
 function reach_key(i, j) return (i + 20000) * 40000 + (j + 20000) end
-function reach_region(n, px, py, pz)
+function reach_region(n, px, py, pz, shut)
 	local C = REACH_CELL
 	local si, sj = math.floor(px / C + 0.5), math.floor(pz / C + 0.5)
-	local R = REACH
+	local R = shut and REACH_SHUT or REACH
 	if R and R.n == n and math.abs((R.py or 0) - (py or 0)) < 1.5 then
 		for di = -1, 1 do for dj = -1, 1 do
 			if R.cells[reach_key(si + di, sj + dj)] then return R end
@@ -3646,7 +3844,27 @@ function reach_region(n, px, py, pz)
 	end
 	n.py = py
 	local avoid = avoid_list(nil, nil, px, pz)
-	if n.nfloors > 0 and py then return reach_region3(n, px, py, pz, avoid) end
+	if shut then
+		-- every door of the map closed: which room you are in
+		local base, gn = u32(GIMMICK_PTR), u32(GIMMICK_COUNT)
+		if gn > 0 and gn <= 200 and inram(base, gn * 0x74) then
+			for k = 0, gn - 1 do
+				local g = base + k * 0x74
+				if u32(g + 4) == 2 then
+					local gx, gz = s32(g + 8) / 4096, s32(g + 0x10) / 4096
+					if (px - gx) ^ 2 + (pz - gz) ^ 2 > 3 then
+						avoid[#avoid + 1] = { x0 = gx - 1.6, x1 = gx + 1.6, z0 = gz - 1.6, z1 = gz + 1.6, pad = 0.05 }
+					end
+				end
+			end
+		end
+	end
+	if n.nfloors > 0 and py then
+		local keep = REACH
+		local r = reach_region3(n, px, py, pz, avoid)
+		if shut then REACH_SHUT, REACH = r, keep end
+		return r
+	end
 	local cells, q, qh = {}, {}, 1
 	local function ok(i, j)
 		local x, z = i * C, j * C
@@ -3664,7 +3882,7 @@ function reach_region(n, px, py, pz)
 			if not start and ok(si + di, sj + dj) then start = { si + di, sj + dj } end
 		end end
 	end
-	if not start then REACH = nil return nil end
+	if not start then if shut then REACH_SHUT = nil else REACH = nil end return nil end
 	cells[reach_key(start[1], start[2])] = true
 	q[1] = start
 	local count, truncated = 1, false
@@ -3684,8 +3902,9 @@ function reach_region(n, px, py, pz)
 		end
 		if count > REACH_MAX then truncated = true break end
 	end
-	REACH = { n = n, cells = cells, py = py, x = px, z = pz, truncated = truncated, count = count }
-	return REACH
+	local res = { n = n, cells = cells, py = py, x = px, z = pz, truncated = truncated, count = count }
+	if shut then REACH_SHUT = res else REACH = res end
+	return res
 end
 -- the same over floors at different heights (stairs, ramps, balconies)
 function reach_region3(n, px, py, pz, avoid)
@@ -3900,6 +4119,9 @@ local function start_walk()
 	if not px then say("Cannot walk right now.") return end
 	if reach_mark and it.code == map_code() then reach_mark({ it }) end
 	if it.unreachable then say(unreachable_msg(it), true) return end
+	-- a door the story keeps locked for now: no use walking into it (one with a keyhole: you
+	-- may have the key, so go)
+	if it.locked and not it.lock_key then say(it.label:gsub("^%l", string.upper) .. ". It will not open yet.", true) return end
 	-- things bumped into on earlier walks (often a person who has since moved) are forgotten
 	local nv0 = nav_for()
 	if nv0 then nv0.bb = {} end

@@ -250,6 +250,17 @@ CHANGES IN 0.4
 - Auto walk to a person turns you to face them, so A talks to them.
 - Auto walk to a door on the far side of a wall tries the door's other side, and if there is no
   way to it from where you are, says so instead of walking part of the way.
+- Doors everywhere in the game are named after where they lead, from the game's own map files:
+  a door into a place with a name says it ("Inn door", "Church door"); a door into rooms that
+  have no name of their own says what is in the room on the other side ("door to a room with
+  stairs up and a bookshelf", "door to a house with a treasure chest", "cell door", "lift").
+  A door between two rooms of the same place names the room on the other side from you.
+  Two doors with the same name get a side ("left", "right").
+- Locked doors say so: "locked door to a room with a bookshelf". This comes from the game's own
+  rules for each door, checked against how far you are in the story and the game's event flags,
+  so a door that opens later in the story, or one you have unlocked, is no longer called locked.
+  A door with a keyhole also says which key opens it ("opens with the Magic Key").
+  Auto walk to a door that will not open yet tells you so instead of walking there.
 - Things in other rooms: one area of the game can hold several rooms joined only through another
   area (the prayer room, study and storeroom off the Observatory hall). People, items and doors you
   cannot walk to from where you stand now come after the rest of the list and end with "no way
