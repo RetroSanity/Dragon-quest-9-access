@@ -1,12 +1,12 @@
-version 0.4
+version 0.51
 patch 3
 file 442 Install DQ9 Access.bat
 file 26434 LICENSE-NVDA.txt
-file 19025 README.txt
+file 19028 README.txt
 file 46067 dq9-access-doors.lua
 file 2526928 dq9-access-maps.bin
 file 14541 dq9-access-objects.lua
-file 400530 dq9-access.lua
+file 400531 dq9-access.lua
 file 873984 openal_soft.dll
 file 1363968 prism.dll
 file 11096 installer/install.ps1

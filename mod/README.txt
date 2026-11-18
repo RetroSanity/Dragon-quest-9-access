@@ -17,7 +17,7 @@ ROM with its BUILD.bat or its installer (github.com/sackchief/dqix-enhanced). Th
    it is), adds the mod to it, builds the game again (a few minutes) and puts the mod in its
    own folder, "DQ9 access" in your Documents. Your save and settings are not touched.
 3. Run Dragon Quest IX as usual (your shortcut, or dqix.exe in the game folder). After a moment
-   you hear "Dragon Quest 9 access 0.4 for the PC version is running. Press K for keys."
+   you hear "Dragon Quest 9 access 0.51 for the PC version is running. Press K for keys."
 
 You can run "Install DQ9 Access.bat" again at any time (there is a copy in the DQ9 access
 folder): for example after updating the PC version itself, which builds the game again
@@ -239,8 +239,8 @@ CHANGES IN 0.3
 - The mod keeps itself up to date from its GitHub page when the game starts.
 - 0.3.1 and 0.3.2: the first automatic updates (tests that updates reach everyone).
 
-CHANGES IN 0.4
---------------
+CHANGES IN 0.51
+---------------
 - Every screen reader: the mod talks through Prism, so NVDA, JAWS, Narrator, ZDSR, System Access,
   PC-Talker, ZoomText and others all work, and a Windows voice when none is running.
   This version changes the game's part of the mod: run Install DQ9 Access.bat once.
