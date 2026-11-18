@@ -1,16 +1,17 @@
-version 0.3.2
-patch 1
+version 0.4
+patch 2
 file 442 Install DQ9 Access.bat
 file 26434 LICENSE-NVDA.txt
-file 14068 README.txt
+file 14719 README.txt
 file 2526928 dq9-access-maps.bin
-file 364452 dq9-access.lua
+file 364450 dq9-access.lua
+file 1363968 prism.dll
 file 11096 installer/install.ps1
 file 16764 installer/game-patch/access-game.patch
 file 24214 installer/game-patch/files/runtime/access.c
 file 1269 installer/game-patch/files/runtime/access.h
-file 6673 installer/game-patch/files/runtime/speech.c
-file 450 installer/game-patch/files/runtime/speech.h
+file 11041 installer/game-patch/files/runtime/speech.c
+file 543 installer/game-patch/files/runtime/speech.h
 file 36164 installer/game-patch/files/third_party/lua/lapi.c
 file 1427 installer/game-patch/files/third_party/lua/lapi.h
 file 33109 installer/game-patch/files/third_party/lua/lauxlib.c
@@ -71,3 +72,17 @@ file 4552 installer/game-patch/files/third_party/lua/lvm.h
 file 1322 installer/game-patch/files/third_party/lua/lzio.c
 file 1438 installer/game-patch/files/third_party/lua/lzio.h
 file 2235 installer/game-patch/files/third_party/lua/onelua.c
+file 15860 prism-licences/LICENSE
+file 6006 prism-licences/NOTICE
+file 3328 prism-licences/LICENSES/concurrentqueue/LICENSE.md
+file 11560 prism-licences/LICENSES/djinni/LICENSE
+file 2645 prism-licences/LICENSES/dr_wav/LICENSE
+file 1114 prism-licences/LICENSES/fmt/LICENSE
+file 21155 prism-licences/LICENSES/highway/LICENSE
+file 46 prism-licences/LICENSES/moderncom/AUTHORS.md
+file 1116 prism-licences/LICENSES/moderncom/LICENSE
+file 26141 prism-licences/LICENSES/nvdaController/lgpl-2.1.txt
+file 914 prism-licences/LICENSES/nvgt/LICENSE.md
+file 15333 prism-licences/LICENSES/prism/mpl-2.0.txt
+file 10351 prism-licences/LICENSES/simdutf/apache-2.0.txt
+file 1633 prism-licences/LICENSES/wayland-protocols/LICENSE

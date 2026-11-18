@@ -1,7 +1,8 @@
 # Dragon Quest 9 Access
 
 A screen reader mod for the PC version of Dragon Quest IX: Sentinels of the Starry Skies. It
-reads the whole game out loud through NVDA, JAWS or the Windows voice, so it can be played
+reads the whole game out loud through your screen reader (NVDA, JAWS, Narrator, ZDSR, System
+Access and others) or a Windows voice, so it can be played
 from start to finish without seeing the screen: menus, dialogue and choices, battles, the map
 and what is around you, auto walk to people, doors, stairs and chests, and much more.
 
@@ -63,6 +64,8 @@ and attach that file.
 - The mod's part of the game's code (`mod/installer/game-patch`) changes DQIX Enhanced, so it
   is under the same licence, the GNU GPL version 3.
 - Lua 5.4 (`mod/installer/game-patch/files/third_party/lua`): MIT licence, Lua.org, PUC-Rio.
+- Prism (`mod/prism.dll`, github.com/ethindp/prism), which lets the mod talk through any screen
+  reader: Mozilla Public License 2.0; its licence and notices are in `mod/prism-licences`.
 - NVDA Controller Client (`mod/nvdaControllerClient64.dll`): see `mod/LICENSE-NVDA.txt`.
 - Dragon Quest IX belongs to Square Enix. This is a fan-made accessibility project. It contains
   no game code, graphics, sound or ROM. So that it can describe the game, the mod does carry

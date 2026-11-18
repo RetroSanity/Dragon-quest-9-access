@@ -4,7 +4,7 @@ changes to the game's code (GAME_PATCH below; raise it when mod/installer/game-p
 and ACCESS_PATCH in game-patch/files/runtime/access.c with it), and every file in mod/ with
 its size. The game's auto update reads it from GitHub when it starts."""
 import os, re
-GAME_PATCH = 1
+GAME_PATCH = 2
 root = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mod')
 lua = open(os.path.join(root, 'dq9-access.lua'), encoding='latin-1').read()
 version = re.search(r'^MOD_VERSION = "([^"]+)"', lua, re.M).group(1)

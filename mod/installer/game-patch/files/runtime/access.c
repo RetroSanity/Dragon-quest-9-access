@@ -310,7 +310,7 @@ static void load_script(void) {
  * loaded as usual (its file changed). An update that also changes the game
  * (a newer "patch") is said: the installer has to build the game again.
  * No update: a file called no-auto-update.txt in the mod's folder. */
-#define ACCESS_PATCH 1
+#define ACCESS_PATCH 2
 #define UPDATE_HOST L"raw.githubusercontent.com"
 #define UPDATE_REPO "RetroSanity/Dragon-quest-9-access/main"
 static volatile int g_upd_done;                 /* 1: the thread has finished (g_upd_msg: what to say) */
