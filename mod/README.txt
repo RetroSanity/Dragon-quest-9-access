@@ -250,3 +250,8 @@ CHANGES IN 0.4
 - Auto walk to a person turns you to face them, so A talks to them.
 - Auto walk to a door on the far side of a wall tries the door's other side, and if there is no
   way to it from where you are, says so instead of walking part of the way.
+- Things in other rooms: one area of the game can hold several rooms joined only through another
+  area (the prayer room, study and storeroom off the Observatory hall). People, items and doors you
+  cannot walk to from where you stand now come after the rest of the list and end with "no way
+  there from here"; the category says how many are in other rooms ("People, 6, 5 of them in
+  other rooms"), and auto walk tells you to go through a door instead of walking into a wall.

@@ -2918,12 +2918,18 @@ local function build_nearby()
 	end
 	local key = place_key()
 	for _, p in ipairs(places) do
-		if p.code == key and p.kind == "mark" then list[#list + 1] = { label = p.label, x = p.x, z = p.z } end
+		if p.code == key and p.kind == "mark" then list[#list + 1] = { label = p.label, x = p.x, z = p.z, mark = true } end
 	end
 	for _, it in ipairs(list) do it.d = math.sqrt((it.x - px) ^ 2 + (it.z - pz) ^ 2) end
-	table.sort(list, function(a, b) return a.d < b.d end)
+	if reach_mark then reach_mark(list) end
+	-- things you can walk to first, nearest first; then the ones in other rooms
+	table.sort(list, function(a, b)
+		if (a.unreachable or false) ~= (b.unreachable or false) then return not a.unreachable end
+		return a.d < b.d
+	end)
 	return list
 end
+function build_nearby_g() return build_nearby() end
 
 local sel_item = nil
 local function announce_selected()
@@ -2931,7 +2937,7 @@ local function announce_selected()
 	if not it then say("Nothing nearby.") return end
 	sel_item = it
 	it.code = map_code()
-	say(it.label .. ", " .. directions_to(it.x, it.z) .. ". " .. selected .. " of " .. #nearby)
+	say(it.label .. ", " .. directions_to(it.x, it.z) .. (it.unreachable and ", no way there from here" or "") .. ". " .. selected .. " of " .. #nearby)
 end
 
 -- Categories for the nearby list: N and B (or the controller) only go through the chosen one.
@@ -2984,10 +2990,16 @@ end
 local function step_category(delta)
 	for _ = 1, #CATEGORIES do
 		category = (category - 1 + delta) % #CATEGORIES + 1
-		local n = #nearby_in_category(category)
+		local items = nearby_in_category(category)
+		local n = #items
 		if n > 0 or ALWAYS_SHOWN[CATEGORIES[category]] then
 			selected, sel_item = 0, nil
-			say(CATEGORIES[category] .. ", " .. (n > 0 and n or "none here right now"), true)
+			local away = 0
+			for _, it in ipairs(items) do if it.unreachable then away = away + 1 end end
+			local note = ""
+			if away == n and n > 0 then note = ", all in other rooms, no way there from here"
+			elseif away > 0 then note = ", " .. away .. " of them in other rooms" end
+			say(CATEGORIES[category] .. ", " .. (n > 0 and n or "none here right now") .. note, true)
 			return
 		end
 	end
@@ -3615,6 +3627,166 @@ function avoid_list(tx, tz, px, pz)
 	end
 	return avoid
 end
+-- Where you can walk from where you stand, without going through a door. One map can hold
+-- several rooms that are only joined through another map (the side rooms off a hall), so a thing
+-- can be close by and still out of reach. Worked out once per room and kept.
+REACH = nil
+REACH_CELL = 0.5
+REACH_MAX = 20000
+function reach_key(i, j) return (i + 20000) * 40000 + (j + 20000) end
+function reach_region(n, px, py, pz)
+	local C = REACH_CELL
+	local si, sj = math.floor(px / C + 0.5), math.floor(pz / C + 0.5)
+	local R = REACH
+	if R and R.n == n and math.abs((R.py or 0) - (py or 0)) < 1.5 then
+		for di = -1, 1 do for dj = -1, 1 do
+			if R.cells[reach_key(si + di, sj + dj)] then return R end
+		end end
+		if R.truncated and (px - R.x) ^ 2 + (pz - R.z) ^ 2 < 64 then return R end
+	end
+	n.py = py
+	local avoid = avoid_list(nil, nil, px, pz)
+	if n.nfloors > 0 and py then return reach_region3(n, px, py, pz, avoid) end
+	local cells, q, qh = {}, {}, 1
+	local function ok(i, j)
+		local x, z = i * C, j * C
+		if not clear_at(n, x, z, 0.25, true) then return false end
+		for _, b in ipairs(avoid) do
+			local pd = b.pad or 0.6
+			if x > b.x0 - pd and x < b.x1 + pd and z > b.z0 - pd and z < b.z1 + pd then return false end
+		end
+		return true
+	end
+	-- start from the nearest open spot (you may be standing against a wall)
+	local start = nil
+	for r = 0, 2 do
+		for di = -r, r do for dj = -r, r do
+			if not start and ok(si + di, sj + dj) then start = { si + di, sj + dj } end
+		end end
+	end
+	if not start then REACH = nil return nil end
+	cells[reach_key(start[1], start[2])] = true
+	q[1] = start
+	local count, truncated = 1, false
+	while qh <= #q do
+		local c = q[qh] qh = qh + 1
+		local i, j = c[1], c[2]
+		for _, d in ipairs(NEIGH) do
+			local ni, nj = i + d[1], j + d[2]
+			local k = reach_key(ni, nj)
+			if cells[k] == nil then
+				if ok(ni, nj) and not wall_between(n, i * C, j * C, ni * C, nj * C) then
+					cells[k] = true
+					count = count + 1
+					q[#q + 1] = { ni, nj }
+				end
+			end
+		end
+		if count > REACH_MAX then truncated = true break end
+	end
+	REACH = { n = n, cells = cells, py = py, x = px, z = pz, truncated = truncated, count = count }
+	return REACH
+end
+-- the same over floors at different heights (stairs, ramps, balconies)
+function reach_region3(n, px, py, pz, avoid)
+	local C = REACH_CELL
+	local si, sj = math.floor(px / C + 0.5), math.floor(pz / C + 0.5)
+	local sh = floor_near(n, px, pz, py, 1.5) or py
+	local function k3(i, j, h) return reach_key(i, j) * 64 + (math.floor(h * 2 + 0.5) % 64) end
+	local cells, seen, q, qh = {}, {}, {}, 1
+	local fh_memo = {}
+	local function fhs_at(i, j)
+		local ck = reach_key(i, j)
+		local f = fh_memo[ck]
+		if not f then f = floor_heights(n, i * C, j * C) fh_memo[ck] = f end
+		return f
+	end
+	local start = nil
+	for r = 0, 2 do
+		for di = -r, r do for dj = -r, r do
+			if not start then
+				for _, h in ipairs(fhs_at(si + di, sj + dj)) do
+					if not start and math.abs(h - sh) < 1.0 and clear_at3(n, (si + di) * C, (sj + dj) * C, h, 0.25) then start = { si + di, sj + dj, h } end
+				end
+			end
+		end end
+	end
+	if not start then REACH = nil return nil end
+	seen[k3(start[1], start[2], start[3])] = true
+	cells[reach_key(start[1], start[2])] = true
+	q[1] = start
+	local count, truncated = 1, false
+	while qh <= #q do
+		local c = q[qh] qh = qh + 1
+		local i, j, h = c[1], c[2], c[3]
+		for _, d in ipairs(NEIGH) do
+			local ni, nj = i + d[1], j + d[2]
+			local x, z = ni * C, nj * C
+			for _, nh in ipairs(fhs_at(ni, nj)) do
+				local k = k3(ni, nj, nh)
+				if not seen[k] and math.abs(nh - h) <= STEP_RISE * d[3] then
+					if clear_at3(n, x, z, nh, 0.25) and not wall_between3(n, i * C, j * C, x, z, math.max(h, nh))
+						and not in_avoid(avoid, x, z, nh, 0.6) then
+						seen[k] = true
+						cells[reach_key(ni, nj)] = true
+						count = count + 1
+						q[#q + 1] = { ni, nj, nh }
+					end
+				end
+			end
+		end
+		if count > REACH_MAX then truncated = true break end
+	end
+	REACH = { n = n, cells = cells, py = py, x = px, z = pz, truncated = truncated, count = count }
+	return REACH
+end
+-- can you get within talking distance of this spot (across a counter is fine)?
+function reach_near(R, x, z)
+	local C = REACH_CELL
+	local ci, cj = math.floor(x / C + 0.5), math.floor(z / C + 0.5)
+	local best = 1e9
+	for di = -6, 6 do for dj = -6, 6 do
+		if R.cells[reach_key(ci + di, cj + dj)] then
+			local dd = ((ci + di) * C - x) ^ 2 + ((cj + dj) * C - z) ^ 2
+			if dd < best then best = dd end
+		end
+	end end
+	return math.sqrt(best)
+end
+REACH_TALK = 2.2
+REACH_DOOR = 2.2
+-- mark the things in the list you cannot walk to from here, and put them after the rest
+function reach_mark(list)
+	local n = nav_ready()
+	local px, py, pz = player_pos()
+	if not n or not px then return list end
+	-- a big open map (a field): every part of it joins up, and the check would take too long
+	if n.reach_big then return list end
+	local ok, R = pcall(reach_region, n, px, py, pz)
+	if ok and R and R.truncated then n.reach_big = true end
+	if not ok or not R or R.truncated then return list end
+	for _, it in ipairs(list) do
+		-- (exits are left alone: they are boxes at the map's edge you walk out through)
+		if not it.mark and it.kind ~= 0 then
+			local d = reach_near(R, it.x, it.z)
+			it.away = d
+			it.unreachable = d > (it.kind and REACH_DOOR or REACH_TALK) or nil
+		end
+	end
+	return list
+end
+-- said when a thing on the list cannot be walked to from here
+function unreachable_msg(it)
+	if not it.unreachable then return nil end
+	local what = it.kind and "That door is" or "It is"
+	return "There is no way to " .. it.label .. " from here. " .. what .. " in another room or behind a wall. Go through a door to get there."
+end
+function reach_test_g()
+	local list = build_nearby_g()
+	local px, py, pz = player_pos()
+	return list, REACH, px, py, pz
+end
+
 local walk = nil
 local function stop_walk(msg)
 	walk = nil
@@ -3726,6 +3898,8 @@ local function start_walk()
 	if not it then say("Pick something on the list first.") return end
 	local px, _, pz = player_pos()
 	if not px then say("Cannot walk right now.") return end
+	if reach_mark and it.code == map_code() then reach_mark({ it }) end
+	if it.unreachable then say(unreachable_msg(it), true) return end
 	-- things bumped into on earlier walks (often a person who has since moved) are forgotten
 	local nv0 = nav_for()
 	if nv0 then nv0.bb = {} end
@@ -5696,6 +5870,8 @@ function route_request()
 	if not px then say("Cannot plan a route right now.") return end
 	local nv = nav_for()
 	if not nv then say(it.label .. ", " .. directions_to(it.x, it.z) .. ". There is no map of the walls here to plan a route.", true) return end
+	if reach_mark then reach_mark({ it }) end
+	if it.unreachable then say(unreachable_msg(it), true) return end
 	nv.bb = {}
 	local gx, gz = it.x, it.z
 	if it.nx then
