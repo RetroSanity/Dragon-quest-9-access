@@ -355,3 +355,13 @@ CHANGES AFTER 0.51 (not released yet)
 - Heal All no longer says "Yes or no? Yes" after each spell (the first fix missed one case).
 - A spell's description is read once, after the spell, instead of before it and again after.
 - Coming into a town, things are no longer called "all in other rooms" for the first moment.
+- People behind a counter, again: the mod now looks all round them for the nearest spot with only
+  the counter between (some counters run on a slant, like Stornway's weapon shop) and turns you
+  to face them, slant and all.
+- Doors with no way through marked in the map (some shop doors in Stornway, the doors inside
+  the Quester's Rest): auto walk now walks on through them instead of stopping in front.
+- A chest or other thing right in front of you that you cannot stand nearer to: "In front of
+  treasure chest, 1 step down. Press A." instead of "As close as you can get".
+- Inns, shops and the church: the question ("Will you be staying?") is read on its own, not run
+  together with the next thing said.
+- A spell's description no longer comes after the next spell's name when you move quickly.

@@ -376,7 +376,8 @@ local dlg_last_raw, dlg_last_page, dlg_last_text = "", -1, ""
 
 -- Pages end at a page break (13), a yes or no question (4: what follows are the answers, each
 -- ending with 1) or the end of a message (1).
-PAGE_ENDS = { [13] = true, [4] = true, [1] = true }
+-- (10: the inn's and shops' yes or no box comes after the question; what follows is the answer's)
+PAGE_ENDS = { [13] = true, [4] = true, [1] = true, [10] = true }
 local function split_pages(raw)
 	local pages, from = {}, 1
 	local i = 1
@@ -814,9 +815,11 @@ local function read_menu()
 	-- a window's sentence (a spell's description) waits a moment: the list item it goes with is
 	-- often read in the next frames, and the description should come after it, once
 	if PLAIN_PENDING and frame - PLAIN_PENDING.at >= 4 then
-		local t = PLAIN_PENDING.t
+		local t, pm = PLAIN_PENDING.t, PLAIN_PENDING.m
 		PLAIN_PENDING = nil
-		if t ~= last_said then queue(t) end
+		-- (gone from the screen meanwhile: the last spell's, as the cursor moved on)
+		local current = pm == nil or menu_raw_seen == pm or frame - (menu_hist[pm] or -1000) <= 6
+		if t ~= last_said and current then queue(t) end
 	end
 	local head = menu_fingerprint()
 	if head == menu_head and menu_seen_count > 1 then return end
@@ -890,7 +893,7 @@ local function read_menu()
 				plain_said = t
 				-- the experience window filling in after its first line came with the title
 				local add = info_growth(t)
-				if add then queue(add) last_info_body, last_info_frame = t, frame else PLAIN_PENDING = { t = t, at = frame } end
+				if add then queue(add) last_info_body, last_info_frame = t, frame else PLAIN_PENDING = { t = t, at = frame, m = m } end
 			end
 			return
 		end
@@ -4312,23 +4315,23 @@ function talk_across(n, x, z, y, o)
 		end
 		return any
 	end
-	-- the way they face first: the nearest spot you can walk to straight in front of them
+	-- every spot you can walk to near them (any way round: some counters run on a slant) with only
+	-- furniture between, or that lies the way they face (a shopkeeper faces the side you talk to
+	-- them from, whatever the counter is marked as); the nearest wins, the way they face helping
 	local ffx, ffz = person_facing(o, x, z)
-	if ffx then
-		local t = 0.8
-		while t <= 3.0 do
-			local ax, az = x + ffx * t, z + ffz * t
-			if clear_at3(n, ax, az, y, 0.3) and reachable(ax, az, 0) then return { x = ax, z = az, t = t } end
-			t = t + 0.1
-		end
-	end
 	local best
-	for _, dv in ipairs({ { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } }) do
+	for k = 0, 23 do
+		local ang = k * math.pi / 12
+		local cx, cz = math.cos(ang), math.sin(ang)
+		local facing_dot = ffx and (cx * ffx + cz * ffz) or 0
 		local t = 0.8
-		while t <= 3.0 do
-			local ax, az = x + dv[1] * t, z + dv[2] * t
+		while t <= 2.4 do
+			local ax, az = x + cx * t, z + cz * t
 			if clear_at3(n, ax, az, y, 0.3) and reachable(ax, az, 0) then
-				if crossing(ax, az) and (not best or t < best.t) then best = { x = ax, z = az, t = t } end
+				if facing_dot > 0.5 or crossing(ax, az) then
+					local score = t - 0.4 * facing_dot
+					if not best or score < best.score then best = { x = ax, z = az, t = t, score = score } end
+				end
 				break
 			end
 			t = t + 0.1
@@ -4366,7 +4369,8 @@ local function start_walk()
 	if nv0 then nv0.bb = {} end
 	walk = { x = it.x, z = it.z, tx0 = it.x, tz0 = it.z, gy = it.y0 and (it.y0 + 1) or nil, label = it.label, obj = it.obj, posoff = it.posoff or 0x24, start = frame, code = map_code(), sx = px, sz = pz,
 	         best = 1e9, progress = frame, side = 1, side_until = 0, tries = 0, push = 0, exit = (it.kind == 0) or nil, place = place_key(),
-	         person = (it.obj and not it.thing and not it.item and not it.monster) or nil }
+	         person = (it.obj and not it.thing and not it.item and not it.monster) or nil,
+	         doorlike = (it.kind == 1 and not it.nx) or nil }
 	if it.nx then
 		-- a door: its thin side faces the way in. Start from the side you are on.
 		-- (a door in front of its exit box is always entered from the door's own side)
@@ -4488,6 +4492,16 @@ local function walk_step(host_pressed)
 		walk.best, walk.progress, walk.tries, walk.follow, walk.stall, walk.path, walk.co = 1e9, frame, 0, nil, 0, nil, nil
 		return
 	end
+	-- a door with no exit behind it (one inside a building, or a town's shop door the map does
+	-- not give a way through for): walk on through it, the way you came at it
+	if walk.doorlike and not walk.door and d < 1.0 and d > 0.05 then
+		local nx, nz = (px - walk.x) / d, (pz - walk.z) / d
+		walk.door = { x = walk.x, z = walk.z, nx = nx, nz = nz, flipped = true }
+		walk.stage, walk.x, walk.z = "in", walk.x - nx * 1.2, walk.z - nz * 1.2
+		walk.best, walk.progress, walk.tries, walk.push, walk.follow, walk.stall, walk.path, walk.co = 1e9, frame, 0, 0, nil, 0, nil, nil
+		return
+	end
+	if walk.stage == "in" and walk.doorlike and d < 0.4 then stop_walk("Through " .. walk.label .. ".") return end
 	if walk.stage == "in" then
 		if d < 0.3 then walk.push = walk.push + 1 end
 		if walk.push > 40 or (frame - walk.progress > 40) then
@@ -4523,7 +4537,7 @@ local function walk_step(host_pressed)
 			walk.face_end = walk.face_end or frame + 10
 			if frame < walk.face_end then
 				local fx, fz = walk.face[1] - px, walk.face[2] - pz
-				pcall(function() joypad.set(DIRS[cardinal_dir(fx, fz) + 1]) end)
+				pcall(function() joypad.set(DIRS[dir_toward(fx, fz) + 1]) end)
 				return
 			end
 			stop_walk(walk.face_msg or ("Arrived at " .. walk.label .. ", across the counter. Press A to talk.")) return
@@ -4656,6 +4670,10 @@ local function walk_step(host_pressed)
 			if square then
 				pcall(sound.play, "chime", 0, 0, -0.5, 0.8)
 				say("As close as you can get. " .. label:gsub("^%l", string.upper) .. " is " .. directions_to(tx, tz) .. ", most likely across a counter. Facing " .. face .. ". Press A to talk.", true)
+			elseif math.sqrt(dx * dx + dz * dz) < 1.6 then
+				-- a step away and turned to it (a treasure chest against a wall): that is there
+				pcall(sound.play, "chime", 0, 0, -0.5, 0.8)
+				say("In front of " .. label .. ", " .. directions_to(tx, tz) .. ". Press A.", true)
 			else
 				say("As close as you can get. " .. label:gsub("^%l", string.upper) .. " is " .. directions_to(tx, tz) .. ".", true)
 			end
