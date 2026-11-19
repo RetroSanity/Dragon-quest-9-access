@@ -419,3 +419,13 @@ CHANGES AFTER 0.51 (not released yet)
   stairs inside.
 - Fixed: after the last change, stairs in a basement (Brigadoom's) were all called "higher up,
   no way there from here", even the ones you came down. Exits are no longer judged by height.
+- Brigadoom walkthrough: once the west double door is unlocked, the ruins' steps change to the
+  way on: through the double door, along the walkway north and up onto the roof, to the exit to
+  northern tower throne room. The western tower's steps now match the dungeon (its stairs to the
+  outside bring you out behind the double door), and the north western tower is called a side
+  room with a chest.
+- Auto walk and "no way there from here" no longer treat the space just outside a real door as
+  off limits, or a roof walk right over a door as being in it. In Brigadoom this made the way to
+  the northern tower look blocked.
+- A door you unlock from its other side is now called "locked from this side", and walking to
+  it says it opens from its other side, instead of "It will not open yet".

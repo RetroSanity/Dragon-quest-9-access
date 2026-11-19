@@ -3293,7 +3293,7 @@ function guide_doors(skip)
 		if d.kind == 1 and d.locked and not seen[d.label] and not skipped then
 			seen[d.label] = true
 			for _, gid in ipairs(d.gids or {}) do seen["g" .. gid] = true end
-			local name = d.label:gsub(", opens with .*$", ""):gsub(", locked$", ""):gsub("^locked ", "")
+			local name = d.label:gsub(", opens with .*$", ""):gsub(", locked from this side$", ""):gsub(", locked$", ""):gsub("^locked ", "")
 			if d.lock_key and KEY_FROM[d.lock_key] then
 				local k = KEY_FROM[d.lock_key]
 				local key = KEY_NAMES[d.lock_key]
@@ -3326,7 +3326,16 @@ DUNGEON_GUIDE = {
 		M01 = {
 			"You are in Brigadoom's ruins; you came in at the south. Optional: a chest with a trailblazing bandana, good for a healer, on top of the eastern tower. From down here it is the treasure chest in the items list that says higher up. To get to it, go in through the eastern tower door, then take the exit outside at the top of the stairs inside; that brings you out on top of the tower, next to the chest.",
 			"The way on is underground. In the exits list there are two exits to the basement: take the one up and to the left of the entrance, on the north west side of the ruins, just north of the way into the western tower.",
-			"The double door on the west side, the bottom door, is locked and cannot be opened from out here; the exit to western tower in the exits list is behind it, so walking there stops at the door. You unlock it from inside the western tower; after that it is a short cut in and out, to go back to Zere to rest.",
+			"The double door on the west side, the bottom door, is up a few steps and locked from this side; the exit to western tower in the exits list is behind it. You unlock it from its other side: through the basement into the western tower, then out of the tower's stairs to the outside. After that it is a short cut in and out, to go back to Zere to rest.",
+		},
+		-- (the double door unlocked: the way on is through it and up onto the walls)
+		M01_open = {
+			"The double door on the west side is open. The way on is through it: go up the steps to the double door, through it, and follow the walkway north. It climbs up onto the roof of the northern part of the ruins.",
+			"At the north end of the roof is the way into the northern tower: pick exit to northern tower throne room in the exits list; auto walk can take you all the way there from the ruins. Optional: pots on the east side of the roof.",
+			"Inside, you come to the second floor of the northern tower, where Morag is. Press this again there for the steps.",
+		},
+		M02 = {
+			"The north western tower: a side room with a treasure chest. It is not on the way to Morag. Go back out, through the double door on the west side and along the walkway north, up onto the roof, to the exit to northern tower throne room.",
 		},
 		M03 = {
 			"The basement. Optional: go north, then east, and follow the eastern path to two chests, with clogs and a mini medal.",
@@ -3334,9 +3343,9 @@ DUNGEON_GUIDE = {
 			"Going on south instead leads to a chest with a belle cap, and then a locked door that needs the Ultimate Key, which you only get much later in the story.",
 		},
 		M05 = {
-			"The western tower. Optional: the drawers in the north and a pot in the south hold items. Then go up the stairs next to where you came in.",
-			"Go south and unlock the door there. That opens the locked double door to the ruins: a short cut you can use to go back to Zere to rest and come straight back.",
-			"Then go north along the path. A door in the north wall has barrels with items. Go through the door in the north and take the stairs beyond it, to the second floor of the northern tower.",
+			"The western tower. Optional: the drawers in the north and a pot in the south hold items. The way on is the stairs to the outside, next to where you came in: pick it in the exits list.",
+			"They bring you out on the walkway behind the double door. The double door is just south of you: walk into it from this side to unlock it, so it is a short cut back to the ruins and Zere.",
+			"Then follow the walkway north. It climbs up onto the roof of the northern part of the ruins; at its north end, pick exit to northern tower throne room in the exits list, the way into the northern tower, where Morag is.",
 		},
 		M06 = {
 			"The second floor of the northern tower. Optional: go east to the stairs down to the princess's room, with a chest holding a gold bracer, and a portrait, a letter and a diary to read.",
@@ -3351,9 +3360,6 @@ DUNGEON_GUIDE = {
 			"The eastern tower. The chest is not in here: it is outside on top of the tower. Pick exit outside in the exits list, at the top of the stairs a few steps up, and walk into it. You come out on the tower top; the treasure chest is then in the items list, right by you. Open it for the trailblazing bandana.",
 			"Then come back in through the same way, go out of the door outside at the bottom, and head for the stairs down to the basement on the north west side of the ruins.",
 		},
-		M02 = {
-			"The north western tower. It is not on the way to Morag. The way on is the basement under the ruins, then up into the western tower.",
-		},
 		doors = { [7301] = { [8] = "it opens from the inside: you unlock it from the western tower. Go down to the basement, up into the western tower, then south to this door; after that it is a short cut." } },
 	},
 }
@@ -3367,6 +3373,7 @@ function dungeon_guide()
 	local sub = code:sub(4, 6)
 	if sub == "" then sub = "M01" end
 	local part = g[sub]
+	if g[sub .. "_open"] and code_unlocked_shortcut(g) then part, code = g[sub .. "_open"], code .. "open" end
 	if not part then return nil end
 	return part, g, code
 end
@@ -3384,7 +3391,7 @@ function dungeon_door_notes(g)
 			for _, gid in ipairs(d.gids) do
 				if notes[gid] and not done[gid] then
 					done[gid] = true
-					local name = d.label:gsub(", opens with .*$", ""):gsub(", locked$", ""):gsub("^locked ", ""):gsub(", left$", ""):gsub(", right$", "")
+					local name = d.label:gsub(", opens with .*$", ""):gsub(", locked from this side$", ""):gsub(", locked$", ""):gsub("^locked ", ""):gsub(", left$", ""):gsub(", right$", "")
 					out[#out + 1] = name .. ": " .. notes[gid]
 				end
 			end
@@ -3404,8 +3411,8 @@ function say_guide()
 			local i = guide_press.n
 			local text = part[i]
 			-- (the short cut already unlocked: no need to unlock it)
-			if code_unlocked_shortcut(g) and text:find("double door", 1, true) then
-				text = "The double door on the west side is unlocked now: your short cut in and out of the western tower."
+			if code_unlocked_shortcut(g) and text:find("walk into it from this side to unlock it", 1, true) then
+				text = "They bring you out on the walkway behind the double door, which is unlocked now: your short cut back to the ruins and Zere."
 			end
 			local head = (i == 1 and (g.name .. " walkthrough, ") or "") .. "step " .. i .. " of " .. #part .. ". "
 			local tail = ""
@@ -3432,7 +3439,7 @@ function say_guide()
 end
 -- Brigadoom's short cut: the door's lock rule says flag 126 opens it
 function code_unlocked_shortcut(g)
-	if g.name ~= "Brigadoom" or u16(MAPID) ~= 7301 then return false end
+	if g.name ~= "Brigadoom" then return false end
 	return flag_bit(STORY_BASE + 0x8C, 126)
 end
 guide_step_g, guide_doors_g = guide_step, guide_doors
@@ -3591,7 +3598,12 @@ function name_doors(ds)
 			d.locked, d.lock_key = locked, key
 			if locked then
 				if d.label:match("^door") then d.label = "locked " .. d.label else d.label = d.label .. ", locked" end
-				if key then d.label = d.label .. ", opens with " .. KEY_NAMES[key] end
+				if key then d.label = d.label .. ", opens with " .. KEY_NAMES[key]
+				elseif door_opens_inside(mapid, gids) then
+					-- (a door you unlock from its other side: say so)
+					d.inside_lock = true
+					d.label = d.label:gsub(", locked$", ", locked from this side"):gsub("^locked ", "") .. (d.label:match("^locked ") and ", locked from this side" or "")
+				end
 			end
 		end
 	end
@@ -4357,6 +4369,11 @@ function avoid_list(tx, tz, px, pz)
 		if not mine and not here then
 			if near then
 				avoid[#avoid + 1] = { x0 = d.x0, x1 = d.x1, z0 = d.z0, z1 = d.z1, y0 = d.y0, y1 = d.y1, pad = 0.05 }
+			elseif d.kind == 1 and d.facing then
+				-- the box behind a real door: you only go in by opening the door, so walking past
+				-- it is fine (Brigadoom's walkway runs right past the northern tower's door)
+				-- (and only at the door's own floor: a roof walk just over the door is not in it)
+				avoid[#avoid + 1] = { x0 = d.x0, x1 = d.x1, z0 = d.z0, z1 = d.z1, y0 = d.y0, y1 = d.y0 and math.min(d.y1, d.y0 + 2.0), pad = 0.15 }
 			else
 				avoid[#avoid + 1] = d
 			end
@@ -4804,6 +4821,7 @@ local function start_walk()
 	if BEACON then BEACON = nil end      -- an auto walk takes over from the beacon
 	-- a door the story keeps locked for now: no use walking into it (one with a keyhole: you
 	-- may have the key, so go)
+	if it.locked and not it.lock_key and it.inside_lock then say(it.label:gsub("^%l", string.upper) .. ". It opens from its other side: find the way round to there.", true) return end
 	if it.locked and not it.lock_key then say(it.label:gsub("^%l", string.upper) .. ". It will not open yet.", true) return end
 	-- things bumped into on earlier walks (often a person who has since moved) are forgotten
 	local nv0 = nav_for()
