@@ -3398,6 +3398,9 @@ function nav_build(name)
 				-- with its height, so walls of a floor below a bridge can be left out
 				local y1, y2, y3 = v[2] / sc, v[5] / sc, v[8] / sc
 				local w = { p[ba][1], p[ba][2], p[bb][1], p[bb][2], math.min(y1, y2, y3), math.max(y1, y2, y3) }
+				-- the kind of wall, from the low bits of its flags: 3 is furniture (counters, tables,
+				-- shelves) that the game lets you talk across; 0 and 6 are the building's walls
+				w.k = (raw:byte(t * 24 + 21) or 0) % 16
 				-- where each corner sits along the footprint (0..1) and its height, so the wall's
 				-- height at any point along it can be worked out (a slanted wall beside a ramp)
 				local ax, az = w[3] - w[1], w[4] - w[2]
@@ -4206,6 +4209,53 @@ function counter_approach(n, x, z, y, o)
 			end
 		end
 	end
+	if best then return best end
+	return talk_across(n, x, z, y)
+end
+-- Someone you cannot walk up to, behind furniture the game lets you talk across (a counter with
+-- no raised top in the map, as at the Angel Falls inn): the nearest spot you can walk to, straight
+-- up, down, left or right of them, with only furniture between (not a wall).
+function talk_across(n, x, z, y)
+	local px, py, pz = player_pos()
+	if not px or not reach_region then return nil end
+	local ok, R = pcall(reach_region, n, px, py, pz)
+	if not ok or not R or not R.cells then return nil end
+	local C = REACH_CELL
+	local function reachable(ax, az, r)
+		local si, sj = math.floor(ax / C + 0.5), math.floor(az / C + 0.5)
+		for di = -r, r do for dj = -r, r do
+			if R.cells[reach_key(si + di, sj + dj)] then return true end
+		end end
+		return false
+	end
+	if reachable(x, z, 1) then return nil end          -- you can walk right up to them
+	local function crossing(ax, az)
+		local soft = false
+		local seen = {}
+		for _, k in ipairs({ math.floor(x / NB) * 100000 + math.floor(z / NB), math.floor(ax / NB) * 100000 + math.floor(az / NB),
+		                     math.floor((x + ax) / 2 / NB) * 100000 + math.floor((z + az) / 2 / NB) }) do
+			for _, w in ipairs(n.wb[k] or {}) do
+				if not seen[w] and seg_cross(x, z, ax, az, w[1], w[2], w[3], w[4]) and wall_in_band(w, y) then
+					seen[w] = true
+					if w.k ~= 3 then return false end
+					soft = true
+				end
+			end
+		end
+		return soft
+	end
+	local best
+	for _, dv in ipairs({ { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } }) do
+		local t = 0.8
+		while t <= 3.0 do
+			local ax, az = x + dv[1] * t, z + dv[2] * t
+			if clear_at3(n, ax, az, y, 0.3) and reachable(ax, az, 0) then
+				if crossing(ax, az) and (not best or t < best.t) then best = { x = ax, z = az, t = t } end
+				break
+			end
+			t = t + 0.1
+		end
+	end
 	return best
 end
 -- The spot in front of a sign (or statue) that it can be read from, and the way to face.
@@ -4789,7 +4839,7 @@ function say_hp_mp(which)
 	end
 	say(table.concat(parts, ". "), true)
 end
-local function say_party()
+local function say_party(short)
 	local members = party_records()
 	if #members == 0 then say("No party information.") return end
 	local in_battle = in_battle()
@@ -4813,14 +4863,14 @@ local function say_party()
 	for _, r in ipairs(members) do
 		local s = r.name .. ", " .. r.hp .. " of " .. r.maxhp .. " HP"
 		if r.maxmp > 0 then s = s .. ", " .. r.mp .. " of " .. r.maxmp .. " MP" end
-		if not in_battle then
+		if not in_battle and not short then
 			local voc = VOCATIONS[r.voc]
 			if r.level then s = s .. ", level " .. r.level end
 			if voc and voc ~= "" then s = s .. " " .. voc end
 		end
 		parts[#parts + 1] = s
 	end
-	say(table.concat(parts, ". "))
+	say(table.concat(parts, ". "), true)
 end
 
 
@@ -6060,7 +6110,7 @@ end
 local function say_gold()
 	local g = u32(0x020F6D48)
 	if g > 9999999 then say("Gold unknown.") return end
-	say(g .. " gold")
+	say(g .. " gold", true)
 end
 
 local function say_where()
@@ -6197,7 +6247,7 @@ local function key_edges()
 			if GAME_KEYS[k] then controller_pressed = true end
 			if type(k) == "string" and (k:match("^X%d ") or k:match("^J%d ")) then
 				-- the left trigger and the combinations made with it do not take over from auto walk
-				if not lt_held and not pad_name(k, LT_NAMES) and not pad_name(k, R3_NAMES) then controller_pressed = true end
+				if not lt_held and not pad_name(k, LT_NAMES) and not pad_name(k, R3_NAMES) and not pad_name(k, L3_NAMES) then controller_pressed = true end
 				if not seen_pad_names[k] then seen_pad_names[k] = true log_line("controller button: " .. k) end
 			elseif type(k) == "string" and #k > 1 and not seen_pad_names[k] then
 				seen_pad_names[k] = true
@@ -6213,29 +6263,36 @@ local function pad_edge(pressed, names)
 	return false
 end
 
--- Left trigger combinations on the controller:
+-- The controller:
+--   pressing in the left stick: everyone's HP and MP (in a battle too)
+--   pressing in the right stick: gold (in a shop too)
+-- Left trigger combinations:
 --   LT + right / left on the D-pad: next / previous category of nearby things
 --   LT + down / up on the D-pad: next / previous thing in that category
 --   LT + pressing in the left stick: walk to the thing you picked
+--   LT + pressing in the right stick: the 3D beacon to it
+--   LT + the top face button (Y): the route to it, step by step (how far to go while the beacon is on)
+Y_NAMES = { "y", "b4" }
 local function handle_pad_combos(k)
-	-- pressing in the right stick: gold, or health and magic in a battle
-	-- pressing in the right stick: the route to the thing picked on the list (gold when nothing
-	-- is picked, or with the left trigger held), or health and magic in a battle
-	if pad_edge(k, R3_NAMES) then
-		if in_battle() then say_party()
-		elseif lt_held and (BEACON or (sel_item and sel_item.code == map_code())) then beacon_toggle()
-		elseif not lt_held and BEACON then beacon_status()
-		elseif not lt_held and sel_item and sel_item.code == map_code() then route_request()
-		else say_gold() end
+	if not lt_held then
+		if pad_edge(k, L3_NAMES) then say_party(true) end
+		if pad_edge(k, R3_NAMES) then say_gold() end
+		return
 	end
-	if not lt_held then return end
-	-- keep the D-pad away from the game while the trigger is held
-	pcall(function() joypad.set({ Up = false, Down = false, Left = false, Right = false }) end)
+	-- keep the D-pad and that face button away from the game while the trigger is held
+	pcall(function() joypad.set({ Up = false, Down = false, Left = false, Right = false, X = false }) end)
 	if pad_edge(k, DPAD.right) then step_category(1) end
 	if pad_edge(k, DPAD.left) then step_category(-1) end
 	if pad_edge(k, DPAD.down) then step_nearby(1) end
 	if pad_edge(k, DPAD.up) then step_nearby(-1) end
 	if pad_edge(k, L3_NAMES) then if walk then stop_walk("Stopped.") else start_walk() end end
+	if pad_edge(k, R3_NAMES) then
+		if BEACON or (sel_item and sel_item.code == map_code()) then beacon_toggle()
+		else say("Pick something on the list first.") end
+	end
+	if pad_edge(k, Y_NAMES) then
+		if BEACON then beacon_status() else route_request() end
+	end
 end
 
 ------------------------------------------------------------------------------ route ---------
@@ -6575,6 +6632,13 @@ end
 -- The auto walk beep: faster the nearer you are to where you are going (along the way, not as the
 -- crow flies), and quiet once you are there.
 WALK_BEEP_NEXT = 0
+-- The auto walk beep, louder than a sound can be played at once: the same beep on two or three
+-- sounds together adds up (volume 10 is a little over twice the old loudest)
+function walk_beep_sound()
+	local g = 2.2 * WALK_BEEP_VOL / 10
+	local copies = math.max(1, math.ceil(g))
+	for _ = 1, copies do pcall(sound.play, "beep", 0, 0, -1, g / copies) end
+end
 function walk_beep()
 	if not walk or not sound or not WALK_BEEP_ON then WALK_BEEP_NEXT = 0 return end
 	local px, _, pz = player_pos()
@@ -6592,7 +6656,7 @@ function walk_beep()
 	else
 		left = math.sqrt(((walk.tx0 or walk.x) - px) ^ 2 + ((walk.tz0 or walk.z) - pz) ^ 2)
 	end
-	if WALK_BEEP_ON and WALK_BEEP_VOL > 0 then pcall(sound.play, "beep", 0, 0, -1, 0.92 * WALK_BEEP_VOL / 10) end
+	if WALK_BEEP_ON and WALK_BEEP_VOL > 0 then walk_beep_sound() end
 	WALK_BEEP_NEXT = frame + math.floor(60 * math.max(0.1, math.min(1.0, 0.08 + left * 0.045)) + 0.5)
 end
 
@@ -6724,7 +6788,7 @@ function misc_step()
 			say(s.level and tostring(s.get()) or (s.get() and "on" or "off"), true)
 			if s.level and sound then
 				if s.key == "beacon_volume" then pcall(sound.play, "knock", 0, 0, -2, 1.25 * BEACON_VOL / 10)
-				else pcall(sound.play, "beep", 0, 0, -1, 0.92 * WALK_BEEP_VOL / 10) end
+				else walk_beep_sound() end
 			end
 		elseif edge.A then
 			if s.action == "close" then MS.open = false ms_say_item(count)
@@ -6774,9 +6838,9 @@ HELP = "R repeat. Control stops speech. W where am I. H health. M magic. L next 
 	"N and B also go through the nearby things, V next category. D directions again. P route there. J walk there. F beacon there, to walk yourself, F again stops it. Shift M mark this spot. " ..
 	"T alerts on or off. C save a debug snapshot. K keys. " ..
 	"On the controller, hold the left trigger: D-pad right and left change category, down and up go through the things in it, " ..
-	"and pressing in the left stick walks there. Pressing in the right stick gives the route to the thing you picked, step by step, " ..
-	"or your gold when nothing is picked, or health and magic in a battle. P also gives the route. " ..
-	"Left trigger and pressing in the right stick: the 3D beacon to the thing you picked, to walk there yourself on headphones; again to stop it."
+	"pressing in the left stick walks there, pressing in the right stick starts the 3D beacon to it, to walk there yourself on headphones, again to stop it, " ..
+	"and the top face button gives the route to it, step by step. " ..
+	"Without the trigger: pressing in the left stick gives everyone's HP and MP, pressing in the right stick gives your gold."
 
 -- the nearby list on the keyboard: Page Up / Page Down go through the things in a category,
 -- with Ctrl through the categories; Ctrl+Home gives the route, Ctrl+End walks there

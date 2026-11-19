@@ -109,14 +109,16 @@ C          Save a snapshot of what the game is showing to dq9-access-log.txt.
 K          Hear the list of keys.
 
 Controller (Xbox-style):
+Press in the left stick (L3)    Everyone's HP and MP (in a battle too).
+Press in the right stick (R3)   Your gold (in a shop too).
 Hold the left trigger (LT), then:
   D-pad right / left   Next / previous category of the nearby list.
   D-pad down / up      Next / previous thing in that category.
   Press in the left stick (L3)   Walk to the thing you picked. Press it again to stop.
-  Press in the right stick (R3)  The 3D beacon to the thing you picked (your gold when
-                                 nothing is picked). Press it again to stop the beacon.
-Press in the right stick (R3) without the trigger: the route to the thing you picked, or your
-gold when nothing is picked, or everyone's health and magic in a battle.
+  Press in the right stick (R3)  The 3D beacon to the thing you picked. Press it again to stop
+                                 the beacon.
+  Top face button (Y)            The route to the thing you picked, step by step (while the
+                                 beacon is on: how far there is to go and the next turns).
 
 
 THE GAME'S OWN KEYS
@@ -295,8 +297,8 @@ CHANGES IN 0.51
 CHANGES AFTER 0.51 (not released yet)
 -------------------------------------
 - The beacon is quiet while someone talks, a menu is open, a scene plays or a battle is on, and
-  carries on afterwards. It follows people and monsters who walk about. The route key (P, or the
-  right stick pressed in) while it is on says how far there is to go and the next turns ("12
+  carries on afterwards. It follows people and monsters who walk about. The route key (P, or LT and
+  Y) while it is on says how far there is to go and the next turns ("12
   steps to go. Next: 3 steps up, then 5 steps left."). On arriving it says which way to face
   ("Face up and press A to talk"). "Beacon says each turn of the way" in Mod settings speaks each
   turn as you reach it.
@@ -322,3 +324,12 @@ CHANGES AFTER 0.51 (not released yet)
 - A yes or no answer reads only the answer you picked, not both.
 - Waking up in bed: doors are no longer called "no way there from here" for a moment.
 - "1 point left" when allocating skill points.
+- New controller keys: pressing in the left stick (L3) gives everyone's HP and MP, anywhere (in
+  a battle too); pressing in the right stick (R3) gives your gold, anywhere (in a shop too). The
+  route to the thing you picked moved to the left trigger and the top face button (LT + Y).
+  Walking (LT + L3) and the beacon (LT + R3) are as before.
+- The auto walk beep is louder: volume 10 is now a little over twice as loud as before.
+- People behind a counter you cannot walk up to, such as Ivor at the Angel Falls inn: auto walk,
+  the beacon and the route now take you round to the front of the counter and face you to them,
+  instead of stopping on the far side of a wall. This uses the game's own marking of furniture
+  you can talk across.
