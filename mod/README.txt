@@ -438,3 +438,9 @@ CHANGES AFTER 0.51 (not released yet)
   foot, or by chimaera wing), instead of still saying to go to Brigadoom.
 - Battles: picking which monster of a group to attack, left and right now say each one as the
   arrow moves ("Bodkin fletcher A", "Bodkin fletcher B"); before, only the group was read.
+- Auto walk across a big field (Doomingale Forest to the open field) works again. It was picking
+  a spot just past the exit, off the edge of the map, so working out the route took ten seconds
+  or more, standing still while monsters caught up. Routes to a spot right against a wall or the
+  edge now finish quickly, a step short.
+- After a battle, the walk starts again only once the battle's last messages are gone and you
+  have stopped pressing buttons, so the press that clears them no longer stops it again.

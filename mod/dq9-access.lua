@@ -4095,7 +4095,9 @@ local function find_path(n, sx, sz, gx, gz, clear, floors, budget, avoid)
 		if e[1] - h(i, j) <= gc + 0.0001 then
 			local hd = h(i, j)
 			if hd < best then best, bestk, bi, bj = hd, k, i, j end
-			if hd < 1 then break end
+			-- (a goal right against a wall or the edge can never be stood on exactly: once the
+			-- search has gone on a while, a step or so short of it will do)
+			if hd < 1 or (hd < 3 and count > 1500) then break end
 			count = count + 1
 			if count > 60000 then break end
 			if count % budget == 0 or (count % 24 == 0 and plan_clock and os.clock() - plan_clock > PLAN_SLICE) then
@@ -4298,7 +4300,7 @@ function find_path3(n, sx, sy, sz, gx, gz, gy, clear, budget, avoid)
 			e.done = true
 			local dd = hd(i, j, h)
 			if dd < best then best, bestn = dd, e end
-			if dd < 1 then break end
+			if dd < 1 or (dd < 3 and count > 1500) then break end
 			count = count + 1
 			if count > 60000 then break end
 			if count % budget == 0 or (count % 24 == 0 and plan_clock and os.clock() - plan_clock > PLAN_SLICE) then
@@ -4890,7 +4892,12 @@ local function start_walk()
 				local h = floor_near and floor_near(nvw, fx, fz, py0 or 0, 1.5) or py0 or 0
 				return wall_between3(nvw, fx, fz, ex, ez, h)
 			end
-			if shut(sgn) and not shut(-sgn) then sgn = -sgn end
+			-- (only to a side with floor to stand on: past an exit at the edge of a field there
+			-- is nothing, and no walls either)
+			local function floor_there(sg)
+				return #floor_heights(nvw, it.x + it.nx * sg * 1.8, it.z + it.nz * sg * 1.8) > 0
+			end
+			if shut(sgn) and not shut(-sgn) and floor_there(-sgn) then sgn = -sgn end
 		end
 		walk.door = { x = it.x, z = it.z, nx = it.nx * sgn, nz = it.nz * sgn, flipped = it.facing or false, wx = it.wx, wz = it.wz }
 		local out = it.facing and 1.4 or 1.8
@@ -4976,7 +4983,10 @@ function walk_resume_step()
 		elseif frame - r.frame > 120 then walk_resume = nil end      -- no battle came: you stopped it
 		return
 	end
-	if in_battle() or frame - battle_seen_frame < 90 or frame - last_dialogue_frame < 60 or fading() then return end
+	-- (wait for the battle's last messages to go, and for you to stop pressing buttons to clear
+	-- them: a press would stop the walk again straight away)
+	if in_battle() or frame - battle_seen_frame < 150 or frame - last_dialogue_frame < 90 or fading()
+		or frame - USER_INPUT_FRAME < 45 then return end
 	if map_code() ~= r.code or frame - r.frame > 60 * 120 then walk_resume = nil return end
 	walk_resume = nil
 	sel_item = r.it
@@ -5095,8 +5105,9 @@ local function walk_step(host_pressed)
 						local p2, rem2 = plan_path(nv, sx, sy, sz, gx, gz, gy, 0.3, true, 20000, avoid)
 						if rem2 < rem - 0.4 then p, rem = p2, rem2 end
 					end
-					-- a narrow winding stair (Brigadoom's eastern tower): less room still
-					if rem > 1.0 then
+					-- a narrow winding stair (Brigadoom's eastern tower): less room still (only for
+					-- somewhere near: out in a big field each try is a long search)
+					if rem > 1.0 and (gx - sx) ^ 2 + (gz - sz) ^ 2 < 400 then
 						local p2, rem2 = plan_path(nv, sx, sy, sz, gx, gz, gy, 0.2, true, 20000, avoid)
 						if rem2 < rem - 0.4 then p, rem = p2, rem2 end
 					end
@@ -7193,7 +7204,7 @@ function route_request(beacon)
 		co = coroutine.create(function()
 			local p, rem = plan_path(nv, px, py, pz, gx, gz, it.y0 and (it.y0 + 1) or nil, 0.45, true, 20000, avoid)
 			for _, cl in ipairs({ 0.3, 0.2 }) do
-				if rem > 1.0 then
+				if rem > 1.0 and (gx - px) ^ 2 + (gz - pz) ^ 2 < 400 then
 					local p2, rem2 = plan_path(nv, px, py, pz, gx, gz, it.y0 and (it.y0 + 1) or nil, cl, true, 20000, avoid)
 					if rem2 < rem - 0.4 then p, rem = p2, rem2 end
 				end
@@ -7305,7 +7316,7 @@ function beacon_plan(b, nv, px, py, pz)
 	b.co = coroutine.create(function()
 		local p, rem = plan_path(nv, px, py, pz, gx, gz, gy, 0.45, true, 20000, avoid)
 		for _, cl in ipairs({ 0.3, 0.2 }) do
-			if rem > 1.0 then
+			if rem > 1.0 and (gx - px) ^ 2 + (gz - pz) ^ 2 < 400 then
 				local p2, rem2 = plan_path(nv, px, py, pz, gx, gz, gy, cl, true, 20000, avoid)
 				if rem2 < rem - 0.4 then p, rem = p2, rem2 end
 			end
