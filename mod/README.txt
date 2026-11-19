@@ -347,3 +347,11 @@ CHANGES AFTER 0.51 (not released yet)
 - The party is read hero first, then the companions in the order they joined, as on screen.
 - The auto walk beep is quicker from the start: half a second apart when far, down to a tenth
   of a second when close.
+- People behind a counter: the mod now goes by the way they face (a shopkeeper faces the side
+  you talk to them from), so the old woman at Zere's inn is reached from the right side, and you
+  are lined up straight across from them before "Press A to talk".
+- Treasure chests and other things a step away: you are turned square on to them, so A opens
+  the chest instead of talking to someone standing beside it.
+- Heal All no longer says "Yes or no? Yes" after each spell (the first fix missed one case).
+- A spell's description is read once, after the spell, instead of before it and again after.
+- Coming into a town, things are no longer called "all in other rooms" for the first moment.

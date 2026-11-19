@@ -811,6 +811,13 @@ function is_layout_label(t)
 	return false
 end
 local function read_menu()
+	-- a window's sentence (a spell's description) waits a moment: the list item it goes with is
+	-- often read in the next frames, and the description should come after it, once
+	if PLAIN_PENDING and frame - PLAIN_PENDING.at >= 4 then
+		local t = PLAIN_PENDING.t
+		PLAIN_PENDING = nil
+		if t ~= last_said then queue(t) end
+	end
 	local head = menu_fingerprint()
 	if head == menu_head and menu_seen_count > 1 then return end
 	menu_head = head
@@ -883,7 +890,7 @@ local function read_menu()
 				plain_said = t
 				-- the experience window filling in after its first line came with the title
 				local add = info_growth(t)
-				if add then queue(add) last_info_body, last_info_frame = t, frame else queue(t) end
+				if add then queue(add) last_info_body, last_info_frame = t, frame else PLAIN_PENDING = { t = t, at = frame } end
 			end
 			return
 		end
@@ -1084,6 +1091,9 @@ local function read_yesno()
 	local visible = false
 	if u32(yesno_obj) == YESNO_VTABLE or (dlg_last_raw:find("\10\255", 1, true) and find_yesno()) then
 		visible = u8(yesno_obj + 0x28) == 1
+		-- the box stays marked as showing after a menu's question: a message that asks nothing
+		-- (Heal All's "Retro casts Heal.") is not a yes or no
+		if visible and not (dlg_last_raw:find("\4\255", 1, true) or clean_text_g(dlg_last_raw):find("?", 1, true)) then visible = false end
 	end
 	local player = u32(PLAYER_PTR)
 	local choice = inram(player, 0x260) and u8(player + 0x250) or 0
@@ -4118,6 +4128,9 @@ function reach_mark(list)
 	local n = nav_ready()
 	local px, py, pz = player_pos()
 	if not n or not px then return list end
+	-- just arrived: you are put in the new map a moment after it changes, so where you stand is
+	-- not known yet ("Doors, 6, all in other rooms" on coming into Zere)
+	if frame - code_changed_frame < 150 or fading() then return list end
 	-- a big open map (a field): every part of it joins up, and the check would take too long
 	if n.reach_big then return list end
 	local ok, R = pcall(reach_region, n, px, py, pz)
@@ -4168,6 +4181,10 @@ function zone_box(o)
 	if not (x1 > x0 and z1 > z0 and x1 - x0 < 8 and z1 - z0 < 8) then return nil end
 	local ox, oz = s32(o + 0x24) / 4096, s32(o + 0x2C) / 4096
 	if (ox - (x0 + x1) / 2) ^ 2 + (oz - (z0 + z1) / 2) ^ 2 > 36 then return nil end
+	-- the box is where you talk to them from: right by them (the old woman at Zere's inn points
+	-- at a box by the old man asleep across the room)
+	local nx, nz = math.max(x0, math.min(ox, x1)), math.max(z0, math.min(oz, z1))
+	if (ox - nx) ^ 2 + (oz - nz) ^ 2 > 3.0 ^ 2 then return nil end
 	return x0, z0, x1, z1
 end
 function counter_zone(n, o, y)
@@ -4239,12 +4256,27 @@ function counter_approach(n, x, z, y, o)
 		end
 	end
 	if best then return best end
-	return talk_across(n, x, z, y)
+	return talk_across(n, x, z, y, o)
+end
+-- Which way a person faces: their turn is 4.12 fixed point radians, 0x10 bytes after their place
+-- (0 faces down the map, +z; a quarter turn faces +x). Shopkeepers face the side you talk to
+-- them from. Snapped to the nearest of the map's four directions.
+function person_facing(o, x, z)
+	if not o or not inram(o, 0x80) then return nil end
+	for _, po in ipairs({ 0x24, 0x64 }) do
+		if math.abs(s32(o + po) / 4096 - x) < 0.05 and math.abs(s32(o + po + 8) / 4096 - z) < 0.05 then
+			local a = u16(o + po + 0x10) / 4096
+			local fx, fz = math.sin(a), math.cos(a)
+			if math.abs(fx) >= math.abs(fz) then return (fx >= 0 and 1 or -1), 0 end
+			return 0, (fz >= 0 and 1 or -1)
+		end
+	end
+	return nil
 end
 -- Someone you cannot walk up to, behind furniture the game lets you talk across (a counter with
 -- no raised top in the map, as at the Angel Falls inn): the nearest spot you can walk to, straight
 -- up, down, left or right of them, with only furniture between (not a wall).
-function talk_across(n, x, z, y)
+function talk_across(n, x, z, y, o)
 	local px, py, pz = player_pos()
 	if not px or not reach_region then return nil end
 	local ok, R = pcall(reach_region, n, px, py, pz)
@@ -4258,20 +4290,37 @@ function talk_across(n, x, z, y)
 		return false
 	end
 	if reachable(x, z, 1) then return nil end          -- you can walk right up to them
+	-- each wall is two triangles over the same line on the ground; furniture has at least one
+	-- of them marked (kind 3), a building's wall has neither
 	local function crossing(ax, az)
-		local soft = false
-		local seen = {}
+		local seen, groups = {}, {}
 		for _, k in ipairs({ math.floor(x / NB) * 100000 + math.floor(z / NB), math.floor(ax / NB) * 100000 + math.floor(az / NB),
 		                     math.floor((x + ax) / 2 / NB) * 100000 + math.floor((z + az) / 2 / NB) }) do
 			for _, w in ipairs(n.wb[k] or {}) do
 				if not seen[w] and seg_cross(x, z, ax, az, w[1], w[2], w[3], w[4]) and wall_in_band(w, y) then
 					seen[w] = true
-					if w.k ~= 3 then return false end
-					soft = true
+					local a1, a2 = string.format("%.1f,%.1f", w[1], w[2]), string.format("%.1f,%.1f", w[3], w[4])
+					local key = a1 < a2 and (a1 .. "|" .. a2) or (a2 .. "|" .. a1)
+					groups[key] = groups[key] or (w.k == 3)
 				end
 			end
 		end
-		return soft
+		local any = false
+		for _, soft in pairs(groups) do
+			if not soft then return false end
+			any = true
+		end
+		return any
+	end
+	-- the way they face first: the nearest spot you can walk to straight in front of them
+	local ffx, ffz = person_facing(o, x, z)
+	if ffx then
+		local t = 0.8
+		while t <= 3.0 do
+			local ax, az = x + ffx * t, z + ffz * t
+			if clear_at3(n, ax, az, y, 0.3) and reachable(ax, az, 0) then return { x = ax, z = az, t = t } end
+			t = t + 0.1
+		end
 	end
 	local best
 	for _, dv in ipairs({ { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } }) do
@@ -4365,6 +4414,16 @@ local function start_walk()
 	end
 	say("Walking to " .. it.label .. ". Press any button to stop.", true)
 end
+-- The way to press to face something square on (up, down, left or right on the screen), not on
+-- a slant: on a slant, A can go to whoever stands beside it instead
+function cardinal_dir(fx, fz)
+	local ux, uz, rx, rz = screen_axes()
+	local f, r = fx * ux + fz * uz, fx * rx + fz * rz
+	local vx, vz
+	if math.abs(f) >= math.abs(r) then vx, vz = (f >= 0 and ux or -ux), (f >= 0 and uz or -uz)
+	else vx, vz = (r >= 0 and rx or -rx), (r >= 0 and rz or -rz) end
+	return dir_toward(vx, vz)
+end
 -- Exits such as stairs: the map of walls cannot always reach the exit box itself (a stairway
 -- goes down out of the floor). Near it, walk straight into it: toward it, then along each of
 -- the two screen directions it lies in, until the place changes.
@@ -4455,7 +4514,8 @@ local function walk_step(host_pressed)
 		end
 	elseif walk.exit and not walk.door and d < 0.7 then
 		start_exit_push(walk, px, pz) return
-	elseif not walk.door and d < (walk.obj and 1.4 or 0.7) then
+	elseif not walk.door and d < (walk.obj and 1.4 or (walk.face and 0.35 or 0.7)) then
+		-- (across a counter, the talk only reaches straight across: get right in front of them)
 		-- next to someone: turn to them, so A talks to them
 		if walk.obj and not walk.face then walk.face = { walk.x, walk.z } walk.face_msg = "Arrived at " .. walk.label .. "." end
 		if walk.face then
@@ -4463,7 +4523,7 @@ local function walk_step(host_pressed)
 			walk.face_end = walk.face_end or frame + 10
 			if frame < walk.face_end then
 				local fx, fz = walk.face[1] - px, walk.face[2] - pz
-				pcall(function() joypad.set(DIRS[dir_toward(fx, fz) + 1]) end)
+				pcall(function() joypad.set(DIRS[cardinal_dir(fx, fz) + 1]) end)
 				return
 			end
 			stop_walk(walk.face_msg or ("Arrived at " .. walk.label .. ", across the counter. Press A to talk.")) return
@@ -4585,12 +4645,9 @@ local function walk_step(host_pressed)
 			walk.final = walk.final or frame + 12
 			if frame < walk.final then
 				local dir = dir_toward(dx, dz)
-				if square then
-					local fx, fz
-					if face == "up" then fx, fz = ux, uz elseif face == "down" then fx, fz = -ux, -uz
-					elseif face == "right" then fx, fz = rx, rz else fx, fz = -rx, -rz end
-					dir = dir_toward(fx, fz)
-				end
+				-- right by it (a treasure chest a step away): face it square on, not on a slant,
+				-- or A goes to whoever stands beside it
+				if square or math.sqrt(dx * dx + dz * dz) < 2.2 then dir = cardinal_dir(dx, dz) end
 				pcall(function() joypad.set(DIRS[dir + 1]) end)
 				return
 			end
