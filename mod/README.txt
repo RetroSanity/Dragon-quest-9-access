@@ -444,3 +444,8 @@ CHANGES AFTER 0.51 (not released yet)
   edge now finish quickly, a step short.
 - After a battle, the walk starts again only once the battle's last messages are gone and you
   have stopped pressing buttons, so the press that clears them no longer stops it again.
+- Big fields: exits you cannot walk to from where you are (the Zere region has two exits to
+  Western Stornway, one of them across a cliff) are now marked "out of reach from here" and come
+  last, a moment after you arrive, instead of auto walk trying and getting stuck. Before, fields
+  were too big to check.
+- Just after a battle the exits list no longer says "No exits nearby" for a moment.

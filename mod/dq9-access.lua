@@ -2399,6 +2399,9 @@ local function doors()
 	local id = u16(MAPID)
 	if doors_cache.list and doors_cache.id == id and frame - doors_cache.frame < 60 then return doors_cache.list end
 	local list = doors_raw()
+	-- (just after a battle the map's exits are not back yet: "No exits nearby" for a moment)
+	if #list == 0 and doors_cache.list and #doors_cache.list > 0 and doors_cache.id == id
+		and (in_battle() or frame - (battle_seen_frame or -1000) < 300) then return doors_cache.list end
 	if stairs_mark then pcall(stairs_mark, list) end
 	doors_cache.list, doors_cache.id, doors_cache.frame = list, id, frame
 	return list
@@ -4508,8 +4511,9 @@ function reach_region(n, px, py, pz, shut)
 	return res
 end
 -- the same over floors at different heights (stairs, ramps, balconies)
-function reach_region3(n, px, py, pz, avoid)
+function reach_region3(n, px, py, pz, avoid, maxc)
 	local C = REACH_CELL
+	local MAXC = maxc or REACH_MAX
 	local si, sj = math.floor(px / C + 0.5), math.floor(pz / C + 0.5)
 	local sh = floor_near(n, px, pz, py, 1.5) or py
 	local function k3(i, j, h) return reach_key(i, j) * 64 + (math.floor(h * 2 + 0.5) % 64) end
@@ -4555,10 +4559,40 @@ function reach_region3(n, px, py, pz, avoid)
 				end
 			end
 		end
-		if count > REACH_MAX then truncated = true break end
+		if count > MAXC then truncated = true break end
+		-- (the whole of a big field, worked out a little each frame)
+		if maxc and count % 128 == 0 and plan_clock and os.clock() - plan_clock > PLAN_SLICE and coroutine.isyieldable() then
+			coroutine.yield()
+		end
 	end
-	REACH = { n = n, cells = cells, cells3 = seen, k3 = k3, py = py, x = px, z = pz, truncated = truncated, count = count }
-	return REACH
+	local res = { n = n, cells = cells, cells3 = seen, k3 = k3, py = py, x = px, z = pz, truncated = truncated, count = count }
+	if not maxc then REACH = res end
+	return res
+end
+-- A big open map (a field) is too big to work out in one go: work out once, over a few frames,
+-- where you can walk from where you are, and keep it while you stay in that part of the field
+-- (a river or a cliff splits some fields in two: an exit on the far side is out of reach).
+REACH_BIG = { n = nil, co = nil, R = nil }
+function reach_big_get(n, px, py, pz)
+	local B = REACH_BIG
+	if (n.nfloors or 0) == 0 then return nil end
+	if B.n == n and B.R and reach_near(B.R, px, pz) < 1.5 then return B.R end
+	if B.co and B.n == n then return nil end          -- still working it out
+	B.n, B.R = n, nil
+	local av = avoid_list(nil, nil, px, pz)
+	B.co = coroutine.create(function() return reach_region3(n, px, py, pz, av, 200000) end)
+	return nil
+end
+function reach_big_step()
+	local B = REACH_BIG
+	if not B.co then return end
+	if nav_ready() ~= B.n then B.co, B.n = nil, nil return end
+	plan_clock = os.clock and os.clock() or nil
+	local ok, R = coroutine.resume(B.co)
+	if coroutine.status(B.co) == "dead" then
+		B.co = nil
+		if ok and R and not R.truncated then B.R = R end
+	end
 end
 -- with floors at different heights: can you get near this spot at the height it is at (a chest
 -- on top of a tower stands over ground you can walk on)? nil when it cannot be told
@@ -4601,13 +4635,18 @@ function reach_mark(list)
 	-- just arrived: you are put in the new map a moment after it changes, so where you stand is
 	-- not known yet ("Doors, 6, all in other rooms" on coming into Zere)
 	if frame - code_changed_frame < 150 or fading() then return list end
-	-- a big open map (a field): every part of it joins up, and the check would take too long
-	if n.reach_big then return list end
-	local ok, R = pcall(reach_region, n, px, py, pz)
-	if ok and R and R.truncated then n.reach_big = true end
-	if not ok or not R or R.truncated then return list end
-	-- a scrap of floor (lying in bed, standing on a table in a scene): no telling yet
-	if (R.count or 0) < 16 then return list end
+	local ok, R
+	if n.reach_big then
+		-- a big open map (a field): worked out bit by bit (until then, nothing is marked)
+		ok, R = pcall(reach_big_get, n, px, py, pz)
+		if not ok or not R then return list end
+	else
+		ok, R = pcall(reach_region, n, px, py, pz)
+		if ok and R and R.truncated then n.reach_big = true pcall(reach_big_get, n, px, py, pz) end
+		if not ok or not R or R.truncated then return list end
+		-- a scrap of floor (lying in bed, standing on a table in a scene): no telling yet
+		if (R.count or 0) < 16 then return list end
+	end
 	for _, it in ipairs(list) do
 		-- (an exit is a box at the map's edge you walk out through: it only has to be close to
 		-- where you can walk; one across a river is out of reach)
@@ -7901,6 +7940,7 @@ while true do
 		walk_resume_step()
 		PT("route_step") route_step()
 		beacon_step()
+		pcall(reach_big_step)
 		walk_beep()
 		misc_step()
 		PT("nav_prefetch") nav_prefetch()
