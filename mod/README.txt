@@ -392,3 +392,11 @@ CHANGES AFTER 0.51 (not released yet)
   through a door or find stairs.
 - Two questions in a row with the Yes / No box staying up (the church asks whether to record
   your adventure, then whether to carry on): the second question now says "Yes or no?" too.
+- Story guide: hold the left trigger and press Back (or press Y on the keyboard) to hear where to
+  go next in the story, from the start of the game to after the ending. It knows where you are
+  in the story from the game itself, and from the places you reach and the bosses you beat
+  (kept in dq9-access-guide.txt). It also says what each locked door where you are needs: which
+  key opens it and where you get that key (the Thief's Key, the Magic Key, the Ultimate Key), or
+  that the story opens it later (Stornway's treasure room: the King opens it as your reward).
+- Doors and exits to rooms that only had a floor number now say the room: "exit to basement",
+  "exit to northern tower throne room" (in Brigadoom it used to say "exit to door").

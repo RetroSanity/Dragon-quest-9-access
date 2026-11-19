@@ -54,7 +54,7 @@ WALK_DEBUG = false   -- true: log auto walk's route and position (in the speech 
 KEYS = {
 	repeat_last = "R", stop = "", where = "W", party = "H", gold = "G", info = "I",
 	options = "O", next_thing = "N", prev_thing = "B", directions = "D", mark = "M", mp = "M",
-	alerts = "T", capture = "C", help = "K", equipment = "U", walk = "J", stats = "L", category = "V", route = "P", beacon = "F",
+	alerts = "T", capture = "C", help = "K", equipment = "U", walk = "J", stats = "L", category = "V", route = "P", beacon = "F", guide = "Y",
 }
 SAY_POSITION_IN_MENUS = true   -- add "2 of 6" after a menu option
 ALERTS_ON = true               -- wall bumps
@@ -209,6 +209,7 @@ local function say(text, interrupt)
 	last_said = text
 	if text:match("%?$") and not text:find("^Yes or no") then QUESTION_FRAME, QUESTION_TEXT = frame, text end
 	if mon_note_said then pcall(mon_note_said, text) end
+	if guide_hear then pcall(guide_hear, text) end
 	console.log(text)
 	log_line((interrupt == false and "+ " or "! ") .. text)
 	if speech and speech.say then
@@ -2257,7 +2258,12 @@ end
 ROOM_DOOR_NAMES = { Princess = "Princess's room door", Throneroom = "throne room door" }
 function room_door_label(room)
 	if ROOM_DOOR_NAMES[room] then return ROOM_DOOR_NAMES[room] end
-	room = room:lower()
+	-- "Lv 2, Northern Tower Throneroom": the room's own name after the floor
+	room = room:gsub("^Lv %d+, *", ""):gsub("^B%d+, *", "")
+	if ROOM_DOOR_NAMES[room] then return ROOM_DOOR_NAMES[room] end
+	room = room:gsub("Throneroom", "throne room"):lower()
+	if room:match("^b%d+$") then return "basement door" end
+	if room:match("^lv %d+$") then return "upstairs door" end
 	if room:match("^b%d") or room:match("^lv") then return "door" end
 	return room .. " door"
 end
@@ -2266,7 +2272,16 @@ local function door_name(id, kind)
 	local m = MAPIDS[id]
 	local name = (m and m[2]) or learned[id]
 	-- the open field between towns shares its name with the town (Angel Falls): say what it is
-	if kind == 0 and id >= 20000 and id < 30000 and not (m and m[2]) then name = "the open field" end
+	if kind == 0 and id >= 20000 and id < 30000 and not (m and m[2]) then
+		-- (a field with a name of its own, "Zere Region", is called that)
+		local an = m and AREAS[m[1]:sub(1, 3)]
+		name = "the open field"
+		if an then
+			local town = false
+			for c, v in pairs(AREAS) do if v == an and c:match("^[MC]") then town = true end end
+			if not town then name = an end
+		end
+	end
 	if not name and m and kind == 0 then name = AREAS[m[1]:sub(1, 3)] end
 	if not name and kind == 0 and id >= 20000 and id < 30000 then name = "the open field" end
 	if kind == 0 and EXIT_NAMES[id] then return EXIT_NAMES[id] end
@@ -2276,7 +2291,10 @@ local function door_name(id, kind)
 		-- the game's part names ("Exterior", "Interior - Lv 1") mean nothing on their own:
 		-- in another area say the area ("exit to Mountain Pass"), in this one say "outside"
 		local room = name and name:match("^Interior.- %- (.+)$")
-		if room then return "exit to " .. room_door_label(room):gsub(" door$", "") end
+		if room then
+			local l = room_door_label(room):gsub(" door$", "")
+			if l ~= "door" then return "exit to " .. (l:gsub("^upstairs$", "upstairs")) end
+		end
 		-- a castle's own floors ("Interior", "Interior Lv 3"): which floor
 		if name and m and here and m[1]:match("^C") and m[1]:sub(1, 3) == here:sub(1, 3) then
 			if name == "Interior" then return "exit to the ground floor" end
@@ -3100,6 +3118,210 @@ function door_lock(mapid, gids)
 	if not locked then return nil end
 	return true, key
 end
+------------------------------------------------------------------------------ story guide ---
+-- LT + Back (or Y on the keyboard): where to go next in the story, and how to open the locked
+-- doors where you are. The step comes from the game's own story counter (chapter * 100 + step,
+-- as used for the door locks) and, inside a chapter, from the places you have been and the
+-- bosses you have beaten (kept in dq9-access-guide.txt). The words are a short walkthrough.
+--   ch: the game's story chapters the step can be in; st: exact story numbers, when known;
+--   areas: where the step happens (arriving there means you have got that far);
+--   boss: beating it (the story moving on in that battle) means the step is done
+GUIDE = {
+	{ ch = { 1, 1 }, st = { 101, 101 }, areas = { "X01" }, text = "In the Observatory, talk to Apus Major on the upper floor, then to Aquila in the room to his left. If a room seems to have no way out, turn the camera." },
+	{ ch = { 1, 1 }, areas = { "X01" }, text = "Go out of the south door on the Observatory's second floor and up the stairs to the great tree, Yggdrasil. Examine the tree, talk to Aquila, then go back to Apus Major. The woman by the portal on the ground floor sends you down to Angel Falls." },
+	{ ch = { 1, 1 }, areas = { "M01" }, text = "In Angel Falls, gather benevolessence by helping people: clean out the stables, take the lost ring back to the old woman in the church, and talk to the lost spirit in the north east of the village. Then offer it to the tree." },
+	{ ch = { 2, 2 }, areas = { "M01" }, text = "You have lost your wings. In Angel Falls, talk to the Mayor in the westernmost house, then eat and sleep at Erinn's inn on the east side, and leave the village." },
+	{ ch = { 2, 2 }, areas = { "S01" }, text = "In the Mountain Pass, see the crashed Starflight Express, talk to Ivor by the landslide, then go back to the Mayor in Angel Falls." },
+	{ ch = { 2, 2 }, areas = { "S04", "D01" }, boss = "Hammibal", text = "Go to the Hexagon. Level up to about 5 first. Examine the writing in the north, follow the ghost west to a switch, and go down to the lowest floor to find Patty and the boss. Then go back to Angel Falls: there is a scene at the inn, and a little statue hidden behind the inn to show to the ghost, then to Erinn." },
+	{ ch = { 2, 2 }, st = { 206, 206 }, areas = { "S01" }, text = "Go to the Mountain Pass and examine the door of the Starflight Express. After the scene with Stella, carry on along the pass to Stornway." },
+	{ ch = { 2, 3 }, st = { 207, 301 }, areas = { "C01" }, text = "In Stornway, talk to everyone at the inn, and get three companions from Patty at the inn's counter. Then read the sign in the middle of town about the King's request, and go up to the castle north of town to see King Schott in the throne room." },
+	{ ch = { 3, 3 }, st = { 302, 302 }, areas = { "F02", "S02" }, boss = "Wight Knight", text = "Go to Loch Storn to deal with the Wight Knight. Leave Stornway over the small bridge north of town and keep heading north; the loch is in the clearing by the river." },
+	{ ch = { 3, 3 }, st = { 303, 303 }, areas = {}, text = "Go back to Stornway and tell King Schott about the Wight Knight. He is in the throne room, up the middle stairs of the castle." },
+	{ ch = { 3, 3 }, st = { 304, 304 }, areas = {}, text = "Princess Simona wants to talk to you in private. Her room is through the door from the throne room, then east along the outside walkway, the Princess's room door." },
+	{ ch = { 3, 3 }, st = { 305, 305 }, areas = { "F63", "M02" }, text = "Go to Zere, a small village just west of Loch Storn, to find the princess's old maid, Alanna. Leave Stornway over the bridge north of town, head north towards Loch Storn, then west to Zere. In Zere, Alanna lives in the house in the far north east of the village; see her in the daytime." },
+	{ ch = { 3, 3 }, areas = { "F04", "D03" }, boss = "Morag", text = "Go to Brigadoom, north of Zere: go one area north into Doomingale Forest and find the big dark patch near the top of the map. Inside, the boss, Morag, is up the stairs in the northernmost part; her attack can paralyse, so keep your healer safe. Afterwards talk to the Wight Knight, then to Princess Simona." },
+	{ ch = { 3, 4 }, areas = {}, text = "Go back to King Schott in Stornway castle for your reward; he opens the treasure room and says the checkpoint to the north east is open. At Stornway's inn, talk to Erinn to get the Krak Pot for alchemy. Then go through the Eastern Checkpoint, north east of Stornway, and on north to Coffinwell." },
+	{ ch = { 4, 4 }, areas = { "S03", "F05", "M03" }, text = "In Coffinwell, talk to the Mayor on the second floor of the big building in the north, then to Doctor Phlegming's wife in the house in the north west. Follow her to the door east of her house to find the doctor, then go back to the Mayor for the key to the Quarantomb." },
+	{ ch = { 4, 4 }, areas = { "F06", "D04" }, boss = "Ragin' Contagion", text = "Go to the Quarantomb, west of Coffinwell. On the first floor, touch the red statue and the blue statue in the north east and north west; that opens the door near the entrance. Go on to the middle room, where a broken jar starts a scene, and talk to the big pink monster to fight the boss, the Ragin' Contagion, who attacks twice a turn." },
+	{ ch = { 4, 5 }, areas = {}, text = "Back in Coffinwell, talk to the Mayor, Catarrhina, the Mayor again, rest at the inn, and the Mayor once more; then the ghost in the graveyard, Doctor Phlegming's laboratory door, the houses, and the inn. Then go to the Starflight Express in the Mountain Pass." },
+	{ ch = { 5, 6 }, areas = { "S14", "X05" }, text = "At the Observatory, pray at the great tree to learn Zoom, the spell to fly back to places you have been. Then talk to Stella on the Starflight Express; it takes you to Newid Isle." },
+	{ ch = { 5, 6 }, areas = { "F07", "X02" }, text = "On Newid Isle, go into Alltrades Abbey, north east of where you land. Talk to the priest on the north side of the first floor, then to the people at the bar downstairs, then back to the priest to learn the Bow party trick." },
+	{ ch = { 5, 6 }, areas = { "T01" }, boss = "Master of Nu'un", text = "Go to the Tower of Trades, east of Alltrades Abbey. Do the Bow party trick in front of its door to get in. Climb to the seventh floor; the shining gate in the north leads to the boss, the Master of Nu'un, who attacks twice a turn. Then go back to the abbey and talk to the Jack of Alltrades in the north of the building, so you can change vocations." },
+	{ ch = { 6, 7 }, areas = { "M05" }, text = "Go to Porth Llaffan, straight south of Alltrades Abbey. In the daytime, talk to the pink haired girl, Jona, on the shore, then try to leave town. After that: sleep at the inn, visit Jona at her house, talk to the ghost on the shore, then the Mayor, then the Mayor's son by the west gate, and leave by the west gate." },
+	{ ch = { 7, 7 }, areas = { "D06", "S05" }, boss = "Lleviathan", text = "Follow the road west from Porth Llaffan to Tywll Cave on the shore. At the far end, on Cuddiedig Cliff, the boss is Lleviathan. Afterwards, in Porth Llaffan, talk to Jona on the shore, get on the boat and talk to the captain to set sail." },
+	{ ch = { 7, 8 }, areas = { "S08", "F09", "F11", "M08" }, text = "The boat lands at Slurry Quay. Head south east to Dourbridge. In the daytime, cross the upper bridge for a scene, talk to the man in the northernmost building, then to Cap'n Max Meddlin in the tent in the north east; he gives you the Thief's Key for mini medals." },
+	{ ch = { 8, 9 }, areas = { "F12", "M09", "F10", "S12" }, text = "Leave Dourbridge going east, then south, across the Lonely Plains to Bloomingdale, to the south west. Then go to the Heights of Loneliness, north east of Bloomingdale." },
+	{ ch = { 8, 9 }, areas = { "D07", "M07" }, boss = "Garth Goyle", text = "Climb the Heights of Loneliness to Zere Rocks at the top. Talk to the slime in the building in the north east, then leave to meet the boss, Garth Goyle. Afterwards a ghost goes into the basement next to the slime's hut; talk to it, then go back to Bloomingdale." },
+	{ ch = { 9, 9 }, areas = {}, text = "In Bloomingdale: talk to the old man at the harbour; in the daytime visit Marion at the mansion in the north; talk to the old woman in the small house in the west; talk to Randolph at the armour shop in the middle of town; talk to the ghost and follow it; then examine the gravestone in the south." },
+	{ ch = { 9, 10 }, areas = { "D09" }, boss = "Tyrantula", text = "Go to the Bad Cave, north of Bloomingdale. On the first floor, sit in the lone chair at the middle table; a kidnapper comes out and puts down a ladder. The boss at the end is Tyrantula. Then examine the southern gravestone in Bloomingdale again; Marion's boat at the harbour is now yours to sail." },
+	{ ch = { 9, 11 }, areas = { "C02", "F15" }, text = "Sail to Gleeba, the desert town on the island to the north. Agree to help the Chancellor on the second floor of the palace. Use the Clap party trick by the north western tree in the shade outside the palace to scare out a lizard, and give it to the Chancellor. Talk to the soldier at the bath on the first floor and the woman south of the bath door. On the roof, go round the big oval building and in from the north to get the Magic Key. Then talk to the man on the fountain and jump into the fountain." },
+	{ ch = { 9, 11 }, areas = { "D08" }, boss = "Grand Lizzier", text = "Follow the overgrown lizard into the well, down into the Plumbed Depths. The Queen is on the third floor down, and the boss is the Grand Lizzier. Afterwards, the waterfall in the west of Gleeba hides an item." },
+	{ ch = { 10, 11 }, areas = { "M10", "S06", "F21" }, text = "Sail to Batsureg, on the island north of Gleeba. Talk to Chief Batkhaan in the north western yurt, go to the Hunters' Yurts north of town and examine the northern one, then talk to Batzorig in the southern yurt. Then go north to Mount Ulbaruun, where Batzorig is in a cave to the west." },
+	{ ch = { 10, 11 }, areas = { "F23", "S11", "F22", "D12" }, text = "Talk to the ghost in the cave on Mount Ulbaruun, then go east to Mount Ulzuun. In its north, go into the cave, Gerzuun; the ghost opens the door. Find the Bodura grass at the underground spring. Then go back to Batsureg, rest at the inn, and talk to Batzorig at the southern Hunters' Yurt." },
+	{ ch = { 10, 11 }, areas = {}, boss = "Larstastnaras", text = "Heal up, then step onto the raised ground in the middle of Batsureg to fight the boss, Larstastnaras. Afterwards rest, and go back to the grave where you met Batzorig and his ape." },
+	{ ch = { 11, 12 }, areas = { "F20", "F16", "M11" }, text = "Go to Swinedimples Academy: from the Urdus Marshland head east to Hermany, then north twice. Talk to the man at the gate. In the east dormitory, listen to the students on the second floor, then go into their room. Talk to Fred behind the western house, then rest in your dormitory room. At night, examine the statue on the third floor balcony of the main building." },
+	{ ch = { 12, 12 }, areas = { "D13" }, boss = "Dreadmaster", text = "Go to the old underground school in the north east of the academy grounds. On the second floor down, talk to the ghost teacher, the Dreadmaster, to fight him. Then fly to Alltrades Abbey and go to the glimmering tree in the west to ride the Starflight Express to the Observatory." },
+	{ ch = { 12, 13 }, areas = { "M12", "F26", "H17" }, text = "In Wormwood Creek, buy new gear, rest at the inn until night, then talk to the Mayor at the church. Then go to the cave north of town, squeeze through the small hole in the wall for the Lucida Shard, and talk to Wallace. On the way out the ghost Serena asks for something from town: examine the guardian statue by the weapon shop, then the stone in the church's north east corner, and take her the Serene Necklace." },
+	{ ch = { 13, 13 }, areas = { "F27", "H19", "D14" }, boss = "Gadrongo", text = "From Wormwood Creek go north, then west, to Western Wormwood and the Bowhole. The boss at the bottom is Gadrongo, whose attack can paralyse. Take the Wyrmlight Bow from the pedestal." },
+	{ ch = { 13, 14 }, areas = { "F28", "F29", "F30", "F32", "F33", "M13" }, text = "Go west from Wormwood Creek to Wormwood Canyon, stand on the dragon's face and fire the Wyrmlight Bow to make a bridge of light. Go round the mountains to Upover, in the middle of the Wyrmsmaw region. Talk to the Mayor in the north east, then the guard outside the cave to the right of the Mayor's house." },
+	{ ch = { 13, 14 }, areas = { "D16" }, boss = "Greygnarl", text = "Go through the Magmaroo, five floors, to the boss, Greygnarl. Afterwards, leave the area for a scene and go back to Upover. Talk to the man in purple armour at the town's entrance." },
+	{ ch = { 14, 14 }, areas = {}, text = "Leave your companions at Stornway's inn: the next part is on your own. In Upover, talk to the old woman at the Magmaroo entrance; she wants Drunken Dragon from the brewery down the stairs west of her. Take it to her, then fly to Magmaroo Peak, beat the beast on the southern path, and talk to Greygnarl. Wear the dragon warrior armour he gives you and ride him." },
+	{ ch = { 14, 14 }, areas = { "S07" }, text = "In Gortress, examine the door of your cell, go upstairs and talk to Sterling. Visit the graveyard, examine the barrier, and talk to the soldiers in the east corner and the south corner, then Sterling by the middle bridge. The next day, go to the gallows in the north. Then fly to Stornway to get your companions back." },
+	{ ch = { 14, 14 }, areas = {}, boss = "Goreham-Hogg", text = "Back in Gortress, go up the watch tower, beat the armour guarding the shield generator and turn it off. Sterling opens the way to the boss, Goreham-Hogg, on the first floor; heal at the blue light first. His chest holds the Ultimate Key: use it on the prison doors downstairs, then talk to Sterling." },
+	{ ch = { 14, 15 }, areas = { "X01", "X03" }, text = "At the Observatory, talk to Apus Major on the second floor, then go up to the fourth floor, talk to him again by the Starflight Express and board it. In the Realm of the Almighty, go to the top of the second floor, step into the light and offer the fyggs. Then talk to Stella and Sterling, and take the train to Alltrades Abbey." },
+	{ ch = { 15, 16 }, areas = { "F34", "C04" }, boss = "Godwyn", text = "Travel east from Gortress through the Gittish Empire to Gittingham Palace. Bosses: Hootingham-Gore with two Bad Karmours at the entrance (beat the Karmours first, and use attacks, not spells, on him), Goresby-Purrvis at the top of the outdoor part, then King Godwyn upstairs, who attacks twice a turn and removes your buffs: bring Multiheal or two healers." },
+	{ ch = { 16, 17 }, areas = { "D17" }, text = "On the second floor of Gittingham Palace, the sealed door is now open. Go through it into the Oubliette, down to the sixth floor below, where Corvus is chained in the middle room. Free him; the battle you cannot win and a long scene follow. At the Observatory, take the fygg from the great tree, board the Starflight Express, talk to Sterling, eat the fygg, and talk to him again; the Realm of the Mighty is the last dungeon." },
+	{ ch = { 17, 18 }, areas = { "X04" }, boss = "Corvus", text = "The Realm of the Mighty: level 43 or more is a good idea. Goreham-Hogg is on the third floor, Hootingham-Gore on the eighth; at the fork after him the main way is west. Jump into the purple pit at the end of the red carpet. Then Goresby-Purrvis, and Corvus on the throne. Go back out of the double red doors; at the second one a scene drops you in the middle, where touching the big glowing red ball starts Barbarus. Heal first: after him comes Corvus, the last boss. Keep Multiheal and Magic Barrier going." },
+	{ ch = { 19, 99 }, areas = {}, text = "The story is finished. Next: in Porth Llaffan, find Jona in the shack in the far south east, stay at the inn until night, talk to the ghost on the shore and say no. Then wear a flowing dress from Wormwood Creek, a watermaul wand from Gleeba and a silver shield from Stornway, see Jona, and follow her to Tywll Cave to fight Lleviathan again. You get Sterling's Whistle, to call the Starflight Express anywhere and fly to new places. Treasure map grottos are the main thing to do after the story." },
+}
+-- the keys and where you get them
+KEY_FROM = {
+	{ ch = 8, text = "Cap'n Max Meddlin gives it to you in his tent in the north east of Dourbridge, for mini medals" },
+	{ ch = 10, text = "it is on the roof of Gleeba's palace, inside the big oval building, which you go into from the north" },
+	{ ch = 14, text = "it is in the chest you get after beating Goreham-Hogg in Gortress" },
+}
+-- doors the story keeps shut, by where they are: when they open
+STORY_DOORS = {
+	{ code = "C01", label = "treasure room", text = "King Schott opens it as your reward, once you have dealt with the Wight Knight's business at Brigadoom" },
+}
+guide = { prog = {}, loaded = false, boss = nil, boss_story = 0, boss_step = nil }
+GUIDE_FILE = DIR .. "dq9-access-guide.txt"
+function guide_load()
+	guide.loaded = true
+	local f = io.open(GUIDE_FILE, "r")
+	if not f then return end
+	for line in f:lines() do
+		local ch, idx, st = line:match("^(%d+)=(%d+)@(%d+)")
+		if ch then guide.prog[tonumber(ch)] = { idx = tonumber(idx), st = tonumber(st) } end
+	end
+	f:close()
+end
+function guide_save()
+	local f = io.open(GUIDE_FILE, "w")
+	if not f then return end
+	local ks = {}
+	for ch in pairs(guide.prog) do ks[#ks + 1] = ch end
+	table.sort(ks)
+	for _, ch in ipairs(ks) do f:write(ch, "=", guide.prog[ch].idx, "@", guide.prog[ch].st, "\n") end
+	f:close()
+end
+-- you have got as far as step idx (kept per chapter, with the story number at the time, so going
+-- back to an older save does not count it)
+function guide_reach(idx)
+	if not guide.loaded then guide_load() end
+	local now = story_now()
+	local ch = now // 100
+	local p = guide.prog[ch]
+	if p and p.st <= now and p.idx >= idx then return end
+	guide.prog[ch] = { idx = idx, st = now }
+	guide_save()
+end
+local function guide_has(t, v) for _, x in ipairs(t or {}) do if x == v then return true end end return false end
+-- the step you are on now
+function guide_step()
+	if not guide.loaded then guide_load() end
+	local now = story_now()
+	local ch = now // 100
+	local cands = {}
+	for i, s in ipairs(GUIDE) do
+		if ch >= s.ch[1] and ch <= s.ch[2] then cands[#cands + 1] = i end
+	end
+	if #cands == 0 then
+		-- a chapter not in the guide: the nearest step before it
+		for i, s in ipairs(GUIDE) do if s.ch[1] <= ch then cands = { i } end end
+		if #cands == 0 then cands = { 1 } end
+	end
+	-- exactly known from the story number
+	for _, i in ipairs(cands) do
+		local s = GUIDE[i]
+		if s.st and now >= s.st[1] and now <= s.st[2] then return i end
+	end
+	-- how far you have got in this chapter (and the chapters before, for steps that run on)
+	local best = cands[1]
+	for c = ch - 1, ch do
+		local p = guide.prog[c]
+		if p and p.st <= now and p.idx >= best and guide_has(cands, p.idx) then best = p.idx end
+	end
+	-- (a step pinned to story numbers you are past is done)
+	while GUIDE[best].st and now > GUIDE[best].st[2] and guide_has(cands, best + 1) do best = best + 1 end
+	-- where you are now: a later step of this chapter that happens here
+	local code = (map_code() or ""):sub(1, 3)
+	for _, i in ipairs(cands) do
+		if i > best and guide_has(GUIDE[i].areas, code) and not (GUIDE[i].st and now > GUIDE[i].st[2]) then best = i break end
+	end
+	return best
+end
+-- every so often: arriving somewhere moves the guide on
+guide_last_code = nil
+function guide_tick()
+	if frame % 60 ~= 0 then return end
+	local code = (map_code() or ""):sub(1, 3)
+	if code ~= "" and code ~= guide_last_code and not in_battle() then
+		guide_last_code = code
+		local i = guide_step()
+		if i and guide_has(GUIDE[i].areas, code) then guide_reach(i) end
+	end
+	-- a boss beaten: the story moved on during that battle
+	if guide.boss and not in_battle() and frame - battle_seen_frame > 120 then
+		if story_now() > guide.boss_story then guide_reach(guide.boss_step + 1) end
+		guide.boss = nil
+	end
+end
+-- a battle starting ("Morag draws near!"): is it a boss of the guide?
+function guide_hear(text)
+	if guide.boss or not text then return end
+	local who = text:match("^(.-) draws? near!") or text:match("^(.-) appears?!")
+	if not who then return end
+	who = who:gsub("^[Tt]he ", "")
+	for i, s in ipairs(GUIDE) do
+		if s.boss and who:find(s.boss, 1, true) then
+			guide.boss, guide.boss_story, guide.boss_step = s.boss, story_now(), i
+			return
+		end
+	end
+end
+-- what the locked doors here need
+function guide_doors()
+	local out = {}
+	local ok, list = pcall(build_nearby_g)
+	if not ok or type(list) ~= "table" then return out end
+	local ch = story_now() // 100
+	local seen = {}
+	for _, d in ipairs(list) do
+		if d.kind == 1 and d.locked and not seen[d.label] then
+			seen[d.label] = true
+			local name = d.label:gsub(", opens with .*$", ""):gsub(", locked$", ""):gsub("^locked ", "")
+			if d.lock_key and KEY_FROM[d.lock_key] then
+				local k = KEY_FROM[d.lock_key]
+				local key = KEY_NAMES[d.lock_key]
+				if ch >= k.ch + 1 then
+					out[#out + 1] = name .. " opens with " .. key .. ", which you should have by now: " .. k.text .. ". Walk into the door with it to open it."
+				elseif ch == k.ch then
+					out[#out + 1] = name .. " opens with " .. key .. ": " .. k.text .. "."
+				else
+					out[#out + 1] = name .. " opens with " .. key .. ", which you get later in the story: " .. k.text .. "."
+				end
+			else
+				local why = nil
+				local code = map_code() or ""
+				for _, s in ipairs(STORY_DOORS) do
+					if code:sub(1, #s.code) == s.code and name:find(s.label, 1, true) then why = s.text end
+				end
+				out[#out + 1] = name .. " is kept shut by the story for now" .. (why and (": " .. why) or "; it opens later") .. "."
+			end
+		end
+	end
+	return out
+end
+function say_guide()
+	local i = guide_step()
+	local s = GUIDE[i]
+	local parts = { "Next: " .. s.text }
+	local doors = guide_doors()
+	if #doors > 0 then parts[#parts + 1] = "Locked doors here: " .. table.concat(doors, " ") end
+	say(table.concat(parts, " "), true)
+end
+guide_step_g, guide_doors_g = guide_step, guide_doors
 -- the door part numbers of the door nearest a spot (a double door has two parts); id: the place
 -- it leads to, when known
 function door_gids_at(x, z, r, id)
@@ -6658,6 +6880,8 @@ end
 --   LT + pressing in the right stick: the 3D beacon to it
 --   LT + the top face button (Y): the route to it, step by step (how far to go while the beacon is on)
 Y_NAMES = { "y", "b4" }
+BACK_NAMES = { "back", "select", "view", "b7" }
+--   LT + Back (Select / View): the story guide, where to go next
 local function handle_pad_combos(k)
 	if not lt_held then
 		if pad_edge(k, L3_NAMES) then say_party(true) end
@@ -6665,7 +6889,7 @@ local function handle_pad_combos(k)
 		return
 	end
 	-- keep the D-pad and that face button away from the game while the trigger is held
-	pcall(function() joypad.set({ Up = false, Down = false, Left = false, Right = false, X = false }) end)
+	pcall(function() joypad.set({ Up = false, Down = false, Left = false, Right = false, X = false, Select = false }) end)
 	if pad_edge(k, DPAD.right) then step_category(1) end
 	if pad_edge(k, DPAD.left) then step_category(-1) end
 	if pad_edge(k, DPAD.down) then step_nearby(1) end
@@ -6678,6 +6902,7 @@ local function handle_pad_combos(k)
 	if pad_edge(k, Y_NAMES) then
 		if BEACON then beacon_status() else route_request() end
 	end
+	if pad_edge(k, BACK_NAMES) then say_guide() end
 end
 
 ------------------------------------------------------------------------------ route ---------
@@ -7222,10 +7447,10 @@ HELP = "R repeat. Control stops speech. W where am I. H health. M magic. L next 
 	"Page Down and Page Up, next and previous nearby thing. Control with Page Down and Page Up, next and previous category. " ..
 	"Control Home, route there. Control End, walk there. " ..
 	"N and B also go through the nearby things, V next category. D directions again. P route there. J walk there. F beacon there, to walk yourself, F again stops it. Shift M mark this spot. " ..
-	"T alerts on or off. C save a debug snapshot. K keys. " ..
+	"Y story guide: where to go next, and what opens the locked doors here. T alerts on or off. C save a debug snapshot. K keys. " ..
 	"On the controller, hold the left trigger: D-pad right and left change category, down and up go through the things in it, " ..
 	"pressing in the left stick walks there, pressing in the right stick starts the 3D beacon to it, to walk there yourself on headphones, again to stop it, " ..
-	"and the top face button gives the route to it, step by step. " ..
+	"the top face button gives the route to it, step by step, and the Back button gives the story guide. " ..
 	"Without the trigger: pressing in the left stick gives everyone's HP and MP, pressing in the right stick gives your gold."
 
 -- the nearby list on the keyboard: Page Up / Page Down go through the things in a category,
@@ -7291,6 +7516,7 @@ local function handle_keys()
 	end
 	if k[KEYS.capture] then capture() end
 	if k[KEYS.help] then say(HELP) end
+	if k[KEYS.guide] then say_guide() end
 end
 
 ------------------------------------------------------------------------------ start ---------
@@ -7408,6 +7634,7 @@ while true do
 		pad_prev_a2 = pad.a
 		PT("read_name_entry") read_name_entry()
 		PT("track_map") track_map()
+		PT("guide_tick") guide_tick()
 		PT("alerts") if not walk then alerts(pad) end
 		PT("handle_keys") handle_keys()
 		PT("walk_step") walk_step(controller_pressed)
