@@ -1097,6 +1097,12 @@ local function read_yesno()
 		-- the box stays marked as showing after a menu's question: a message that asks nothing
 		-- (Heal All's "Retro casts Heal.") is not a yes or no
 		if visible and not (dlg_last_raw:find("\4\255", 1, true) or clean_text_g(dlg_last_raw):find("?", 1, true)) then visible = false end
+		-- the next question while the box stays up (the church's "record your works?" then
+		-- "continue on your adventure?"): announce it again
+		if visible then
+			if yesno_question and yesno_question ~= dlg_last_raw then yesno_visible = false end
+			yesno_question = dlg_last_raw
+		end
 	end
 	local player = u32(PLAYER_PTR)
 	local choice = inram(player, 0x260) and u8(player + 0x250) or 0
@@ -2247,6 +2253,14 @@ function exit_name_here(id)
 	local here = map_code()
 	return here and EXIT_NAMES_AT[here:sub(1, 6) .. "|" .. id]
 end
+-- the door into a named room of a building: "Princess" is the Princess's room
+ROOM_DOOR_NAMES = { Princess = "Princess's room door", Throneroom = "throne room door" }
+function room_door_label(room)
+	if ROOM_DOOR_NAMES[room] then return ROOM_DOOR_NAMES[room] end
+	room = room:lower()
+	if room:match("^b%d") or room:match("^lv") then return "door" end
+	return room .. " door"
+end
 local function door_name(id, kind)
 	if kind == 0 and exit_name_here(id) then return exit_name_here(id) end
 	local m = MAPIDS[id]
@@ -2261,6 +2275,14 @@ local function door_name(id, kind)
 		if name and m and here and m[1]:sub(1, 3) == here:sub(1, 3) and name:match("^Lv %d") then return "passage" end
 		-- the game's part names ("Exterior", "Interior - Lv 1") mean nothing on their own:
 		-- in another area say the area ("exit to Mountain Pass"), in this one say "outside"
+		local room = name and name:match("^Interior.- %- (.+)$")
+		if room then return "exit to " .. room_door_label(room):gsub(" door$", "") end
+		-- a castle's own floors ("Interior", "Interior Lv 3"): which floor
+		if name and m and here and m[1]:match("^C") and m[1]:sub(1, 3) == here:sub(1, 3) then
+			if name == "Interior" then return "exit to the ground floor" end
+			local lv = name:match("^Interior Lv (%d+)$")
+			if lv then return "exit to the " .. (({ "1st", "2nd", "3rd" })[tonumber(lv)] or (lv .. "th")) .. " floor" end
+		end
 		if name and m and (name:match("^Exterior") or name:match("^Interior") or name:match("^Lv %d")) then
 			if here and m[1]:sub(1, 3) == here:sub(1, 3) then
 				if name:match("^Exterior") then return "exit outside" end
@@ -2271,7 +2293,19 @@ local function door_name(id, kind)
 		return name and ("exit to " .. name) or "exit"
 	end
 	if m and m[1]:match("^R0") then name = "Quester's Rest" end        -- the inn's own maps
-	if name and (name == "Interior" or name:match("^Interior Lv")) and m[1]:match("^C") then name = "castle" end
+	-- a part of a building with a name of its own after the dash ("Interior Lv 2 - Princess",
+	-- "Interior Lv 2 - Barracks"): that room's name
+	local room = name and name:match("^Interior.- %- (.+)$")
+	if room then return room_door_label(room) end
+	if name and m[1]:match("^C") then
+		-- a castle's floors: "Interior" is the ground floor, "Interior Lv 3" the third
+		local lv = name:match("^Interior Lv (%d+)$")
+		if lv then
+			local ord = ({ "1st", "2nd", "3rd" })[tonumber(lv)] or (lv .. "th")
+			return "castle door to the " .. ord .. " floor"
+		end
+		if name == "Interior" then return "castle door to the ground floor" end
+	end
 	-- another part of the building you are in: the game's own part names ("Lv 1-2") mean nothing
 	local here = map_code()
 	if name and m and here and m[1]:sub(1, 3) == here:sub(1, 3) then
@@ -2705,6 +2739,7 @@ local function characters()
 				-- they can be read from
 				list[#list + 1] = { label = label or (story and "story character" or person and "someone" or "something"),
 				                    x = x, z = z, obj = o, key = key, thing = not person, story = story, posoff = story and 0x64 or nil,
+				                    fy = s32(o + (story and 0x68 or 0x28)) / 4096,
 				                    rot = (not person and not story) and u16(o + 0x34) or nil }
 				end
 			end
@@ -3284,7 +3319,7 @@ local function announce_selected()
 	if not it then say("Nothing nearby.") return end
 	sel_item = it
 	it.code = map_code()
-	say(it.label .. ", " .. directions_to(it.x, it.z) .. (it.unreachable and ", no way there from here" or "") .. ". " .. selected .. " of " .. #nearby)
+	say(it.label .. ", " .. directions_to(it.x, it.z) .. (it.unreachable and ((it.level and ", " .. it.level or "") .. ", no way there from here") or "") .. ". " .. selected .. " of " .. #nearby)
 end
 
 -- Categories for the nearby list: N and B (or the controller) only go through the chosen one.
@@ -3934,6 +3969,7 @@ function stairs_mark(list)
 			if n > 0 and hi - lo > 0.7 then
 				local name = (d.label:gsub("^exit to ", ""))
 				if name == "exit" or name == "passage" then name = nil end
+				if name == "exit outside" then name = "the outside" end      -- not "stairs up to exit outside"
 				local mid = sum / n
 				local way = ""
 				if py and mid > py + 1 then way = " up" elseif py and mid < py - 1 then way = " down" end
@@ -4151,19 +4187,45 @@ function reach_mark(list)
 			local d = reach_near(R, it.x, it.z)
 			it.away = d
 			it.unreachable = d > (it.kind == 0 and 4.0 or it.kind and REACH_DOOR or REACH_TALK) or nil
+			it.level = it.unreachable and level_word(n, py, it.x, it.z, it.y0 or it.fy) or nil
 		end
 	end
 	return list
+end
+-- out of reach on a different level (from a castle's wall walk, the courtyard below): "lower down"
+-- or "higher up", when nothing at that spot is at about your height
+function level_word(n, py, x, z, y)
+	if not py or (n.nfloors or 0) == 0 then return nil end
+	local fs = floor_heights(n, x, z)
+	if #fs == 0 then return nil end
+	local best, bd = nil, 1e9
+	for _, h in ipairs(fs) do
+		local d = math.abs(h - py)
+		if d < bd then best, bd = h, d end
+	end
+	if bd < 1.0 then return nil end
+	-- a door's box says how high it is (a terrace door has the courtyard under it too)
+	if y then
+		local yb, yd = nil, 1.5
+		for _, h in ipairs(fs) do if math.abs(h - y) < yd then yb, yd = h, math.abs(h - y) end end
+		if not yb then return nil end
+		if math.abs(yb - py) < 1.0 then return nil end
+		best = yb
+	end
+	return best < py and "lower down" or "higher up"
 end
 -- said when a thing on the list cannot be walked to from here
 function unreachable_msg(it)
 	if not it.unreachable then return nil end
 	local code = map_code() or ""
+	local what = (it.kind == 1) and "That door is" or "It is"
+	if it.level then
+		return "There is no way to " .. it.label .. " from here. " .. what .. " " .. it.level .. ", on another level from where you are. Go through a door or find stairs to get there."
+	end
 	if code:match("^F") or code:match("^S") or it.kind == 0 then
 		-- out in the open: water, cliffs or a fence in between
 		return "There is no way to " .. it.label .. " from here. It is across water, a cliff or a fence; the way there is round through another part of this area, or another area."
 	end
-	local what = it.kind and "That door is" or "It is"
 	return "There is no way to " .. it.label .. " from here. " .. what .. " in another room or behind a wall. Go through a door to get there."
 end
 function reach_test_g()

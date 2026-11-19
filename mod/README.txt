@@ -382,3 +382,13 @@ CHANGES AFTER 0.51 (not released yet)
   - Accolades Earnt: each accolade with what it was awarded for.
   Coming back out of one list and going into another (Wardrobe, then Item List) works; before,
   the second list could stay silent. No "blocked" alert while you move the cursor in these screens.
+- Castle doors are named after the room behind them: Princess's room door, throne room door,
+  barracks door, treasure room door, and so on. Doors and stairs between a castle's floors say
+  which floor: "castle door to the ground floor", "castle door to the 3rd floor", "stairs to
+  the ground floor". "Stairs up to exit outside" is now "stairs up to the outside".
+- Places with several levels (a castle's wall walk above its courtyard): a thing you cannot get
+  to says "lower down" or "higher up" when it is on another level from you, for example "Well,
+  7 steps right, 4 steps down, lower down, no way there from here", and auto walk tells you to go
+  through a door or find stairs.
+- Two questions in a row with the Yes / No box staying up (the church asks whether to record
+  your adventure, then whether to carry on): the second question now says "Yes or no?" too.
