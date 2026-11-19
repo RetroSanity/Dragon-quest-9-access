@@ -408,3 +408,12 @@ CHANGES AFTER 0.51 (not released yet)
   step. Going into another part of the dungeon starts again from its first step.
 - A door you unlock from its other side is now called that in the guide, instead of "kept shut
   by the story".
+- Things on a higher or lower level that stand over floor you can walk on (a chest on top of a
+  tower, with ground under it) are now marked "higher up, no way there from here", instead of
+  looking close by. Chests, pots and the like now say "higher up" or "lower down" too.
+- Auto walk, the route and the beacon now manage very narrow winding stairs (the stairs up inside
+  Brigadoom's eastern tower), where they used to stop at the bottom.
+- The Brigadoom walkthrough knew the wrong part of the dungeon in the eastern tower (it read the
+  north western tower's step); it now goes by the map's own number. The eastern tower step now
+  says the bandana chest is outside on the tower top: take the exit outside at the top of the
+  stairs inside.

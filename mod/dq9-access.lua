@@ -2796,7 +2796,7 @@ local function map_items()
 			local key = place_key() .. ":" .. math.floor(x + 0.5) .. ":" .. math.floor(z + 0.5)
 			local label = GIMMICK_NAMES[kind] or "something to search"
 			if searched[key] then label = label .. (kind == 1 and ", opened" or ", searched") end
-			list[#list + 1] = { label = label, x = x, z = z, item = true, gkind = kind, key = key }
+			list[#list + 1] = { label = label, x = x, z = z, item = true, gkind = kind, key = key, fy = s32(g + 0x0C) / 4096 }
 		end
 	end
 	return list
@@ -3324,7 +3324,7 @@ end
 DUNGEON_GUIDE = {
 	D03 = { name = "Brigadoom", before = 306,
 		M01 = {
-			"You are in Brigadoom's ruins; you came in at the south. Optional: the eastern tower, on the east side of the ruins. Go in through the eastern tower door, climb the stairs to a chest with a trailblazing bandana, good for a healer, then come back out.",
+			"You are in Brigadoom's ruins; you came in at the south. Optional: a chest with a trailblazing bandana, good for a healer, on top of the eastern tower. From down here it is the treasure chest in the items list that says higher up. To get to it, go in through the eastern tower door, then take the exit outside at the top of the stairs inside; that brings you out on top of the tower, next to the chest.",
 			"The way on is underground. In the exits list there are two exits to the basement: take the one up and to the left of the entrance, on the north west side of the ruins, just north of the way into the western tower.",
 			"The double door on the west side, the bottom door, is locked and cannot be opened from out here; the exit to western tower in the exits list is behind it, so walking there stops at the door. You unlock it from inside the western tower; after that it is a short cut in and out, to go back to Zere to rest.",
 		},
@@ -3348,7 +3348,8 @@ DUNGEON_GUIDE = {
 			"Then go back up the stairs and round the floor clockwise to the door in the north: the throne room, where Morag is.",
 		},
 		M04 = {
-			"The eastern tower. Climb the stairs to the top for the chest with the trailblazing bandana, then go back out to the ruins and take the stairs down to the basement on the north west side.",
+			"The eastern tower. The chest is not in here: it is outside on top of the tower. Pick exit outside in the exits list, at the top of the stairs a few steps up, and walk into it. You come out on the tower top; the treasure chest is then in the items list, right by you. Open it for the trailblazing bandana.",
+			"Then come back in through the same way, go out of the door outside at the bottom, and head for the stairs down to the basement on the north west side of the ruins.",
 		},
 		M02 = {
 			"The north western tower. It is not on the way to Morag. The way on is the basement under the ruins, then up into the western tower.",
@@ -3357,7 +3358,10 @@ DUNGEON_GUIDE = {
 	},
 }
 function dungeon_guide()
-	local code = map_code() or ""
+	-- (the map's own number says which part it is: the code in memory is the file's, and the
+	-- eastern tower's file is "D03M02")
+	local m = MAPIDS[u16(MAPID)]
+	local code = m and m[1] or map_code() or ""
 	local g = DUNGEON_GUIDE[code:sub(1, 3)]
 	if not g or story_now() > g.before then return nil end
 	local sub = code:sub(4, 6)
@@ -4491,8 +4495,26 @@ function reach_region3(n, px, py, pz, avoid)
 		end
 		if count > REACH_MAX then truncated = true break end
 	end
-	REACH = { n = n, cells = cells, py = py, x = px, z = pz, truncated = truncated, count = count }
+	REACH = { n = n, cells = cells, cells3 = seen, k3 = k3, py = py, x = px, z = pz, truncated = truncated, count = count }
 	return REACH
+end
+-- with floors at different heights: can you get near this spot at the height it is at (a chest
+-- on top of a tower stands over ground you can walk on)? nil when it cannot be told
+function reach_near3(R, n, x, z, y)
+	if not R.cells3 or not y then return nil end
+	local fh, fd = nil, 1.5
+	for _, h in ipairs(floor_heights(n, x, z)) do
+		if math.abs(h - y) < fd then fh, fd = h, math.abs(h - y) end
+	end
+	if not fh then return nil end
+	local C = REACH_CELL
+	local ci, cj = math.floor(x / C + 0.5), math.floor(z / C + 0.5)
+	for di = -5, 5 do for dj = -5, 5 do
+		for dh = -1, 1 do
+			if R.cells3[R.k3(ci + di, cj + dj, fh + dh * 0.5)] then return true end
+		end
+	end end
+	return false
 end
 -- can you get within talking distance of this spot (across a counter is fine)?
 function reach_near(R, x, z)
@@ -4531,7 +4553,9 @@ function reach_mark(list)
 			local d = reach_near(R, it.x, it.z)
 			it.away = d
 			it.unreachable = d > (it.kind == 0 and 4.0 or it.kind and REACH_DOOR or REACH_TALK) or nil
-			it.level = it.unreachable and level_word(n, py, it.x, it.z, it.y0 or it.fy) or nil
+			local iy = it.y0 and it.y1 and (it.y0 + it.y1) / 2 or it.fy
+			if not it.unreachable and iy and reach_near3(R, n, it.x, it.z, iy) == false then it.unreachable = true end
+			it.level = it.unreachable and level_word(n, py, it.x, it.z, iy) or nil
 		end
 	end
 	return list
@@ -4547,7 +4571,7 @@ function level_word(n, py, x, z, y)
 		local d = math.abs(h - py)
 		if d < bd then best, bd = h, d end
 	end
-	if bd < 1.0 then return nil end
+	if bd < 1.0 and not y then return nil end
 	-- a door's box says how high it is (a terrace door has the courtyard under it too)
 	if y then
 		local yb, yd = nil, 1.5
@@ -4984,6 +5008,11 @@ local function walk_step(host_pressed)
 					-- a narrow way (between a wall and a stair rail): try again keeping less room
 					if rem > 1.0 then
 						local p2, rem2 = plan_path(nv, sx, sy, sz, gx, gz, gy, 0.3, true, 20000, avoid)
+						if rem2 < rem - 0.4 then p, rem = p2, rem2 end
+					end
+					-- a narrow winding stair (Brigadoom's eastern tower): less room still
+					if rem > 1.0 then
+						local p2, rem2 = plan_path(nv, sx, sy, sz, gx, gz, gy, 0.2, true, 20000, avoid)
 						if rem2 < rem - 0.4 then p, rem = p2, rem2 end
 					end
 					if rem > 1.5 then
@@ -7078,6 +7107,12 @@ function route_request(beacon)
 	route = { it = it, sx = px, sz = pz, gx = gx, gz = gz, start = frame, counter = (it.obj or it.rot) and counter_route or nil,
 		co = coroutine.create(function()
 			local p, rem = plan_path(nv, px, py, pz, gx, gz, it.y0 and (it.y0 + 1) or nil, 0.45, true, 20000, avoid)
+			for _, cl in ipairs({ 0.3, 0.2 }) do
+				if rem > 1.0 then
+					local p2, rem2 = plan_path(nv, px, py, pz, gx, gz, it.y0 and (it.y0 + 1) or nil, cl, true, 20000, avoid)
+					if rem2 < rem - 0.4 then p, rem = p2, rem2 end
+				end
+			end
 			if rem > 1.5 then
 				local p2, rem2 = find_path(nv, px, pz, gx, gz, 0.3, false, 20000, avoid)
 				if rem2 < rem - 1 then p, rem = p2, rem2 end
@@ -7184,6 +7219,12 @@ function beacon_plan(b, nv, px, py, pz)
 	local gx, gz, gy, avoid = b.gx, b.gz, b.gy, b.avoid
 	b.co = coroutine.create(function()
 		local p, rem = plan_path(nv, px, py, pz, gx, gz, gy, 0.45, true, 20000, avoid)
+		for _, cl in ipairs({ 0.3, 0.2 }) do
+			if rem > 1.0 then
+				local p2, rem2 = plan_path(nv, px, py, pz, gx, gz, gy, cl, true, 20000, avoid)
+				if rem2 < rem - 0.4 then p, rem = p2, rem2 end
+			end
+		end
 		if rem > 1.5 then
 			local p2, rem2 = find_path(nv, px, pz, gx, gz, 0.3, false, 20000, avoid)
 			if rem2 < rem - 1 then p, rem = p2, rem2 end
