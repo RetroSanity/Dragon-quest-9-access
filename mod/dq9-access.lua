@@ -3139,8 +3139,8 @@ GUIDE = {
 	{ ch = { 3, 3 }, st = { 303, 303 }, areas = {}, text = "Go back to Stornway and tell King Schott about the Wight Knight. He is in the throne room, up the middle stairs of the castle." },
 	{ ch = { 3, 3 }, st = { 304, 304 }, areas = {}, text = "Princess Simona wants to talk to you in private. Her room is through the door from the throne room, then east along the outside walkway, the Princess's room door." },
 	{ ch = { 3, 3 }, st = { 305, 305 }, areas = { "F63", "M02" }, text = "Go to Zere, a small village just west of Loch Storn, to find the princess's old maid, Alanna. Leave Stornway over the bridge north of town, head north towards Loch Storn, then west to Zere. In Zere, Alanna lives in the house in the far north east of the village; see her in the daytime." },
-	{ ch = { 3, 3 }, areas = { "F04", "D03" }, boss = "Morag", text = "Go to Brigadoom, north of Zere: go one area north into Doomingale Forest and find the big dark patch near the top of the map. Inside, the boss, Morag, is up the stairs in the northernmost part; her attack can paralyse, so keep your healer safe. Afterwards talk to the Wight Knight, then to Princess Simona." },
-	{ ch = { 3, 4 }, areas = {}, text = "Go back to King Schott in Stornway castle for your reward; he opens the treasure room and says the checkpoint to the north east is open. At Stornway's inn, talk to Erinn to get the Krak Pot for alchemy. Then go through the Eastern Checkpoint, north east of Stornway, and on north to Coffinwell." },
+	{ ch = { 3, 3 }, st = { 306, 306 }, areas = { "F04", "D03" }, boss = "Morag", text = "Go to Brigadoom, north of Zere: go one area north into Doomingale Forest and find the big dark patch near the top of the map. Inside, the boss, Morag, is up the stairs in the northernmost part; her attack can paralyse, so keep your healer safe. Afterwards talk to the Wight Knight, then to Princess Simona." },
+	{ ch = { 3, 4 }, st = { 307, 399 }, areas = {}, text = "Go back to King Schott in Stornway castle for your reward: use a chimaera wing to fly to Stornway, or walk, out of Brigadoom to the south, through Doomingale Forest to the south east into the open field, past Zere and on south east to Stornway. The King opens the treasure room and says the checkpoint to the north east is open. At Stornway's inn, talk to Erinn to get the Krak Pot for alchemy. Then go through the Eastern Checkpoint, north east of Stornway, and on north to Coffinwell." },
 	{ ch = { 4, 4 }, areas = { "S03", "F05", "M03" }, text = "In Coffinwell, talk to the Mayor on the second floor of the big building in the north, then to Doctor Phlegming's wife in the house in the north west. Follow her to the door east of her house to find the doctor, then go back to the Mayor for the key to the Quarantomb." },
 	{ ch = { 4, 4 }, areas = { "F06", "D04" }, boss = "Ragin' Contagion", text = "Go to the Quarantomb, west of Coffinwell. On the first floor, touch the red statue and the blue statue in the north east and north west; that opens the door near the entrance. Go on to the middle room, where a broken jar starts a scene, and talk to the big pink monster to fight the boss, the Ragin' Contagion, who attacks twice a turn." },
 	{ ch = { 4, 5 }, areas = {}, text = "Back in Coffinwell, talk to the Mayor, Catarrhina, the Mayor again, rest at the inn, and the Mayor once more; then the ghost in the graveyard, Doctor Phlegming's laboratory door, the houses, and the inn. Then go to the Starflight Express in the Mountain Pass." },
@@ -4368,7 +4368,9 @@ function avoid_list(tx, tz, px, pz)
 		local near = px > d.x0 - 0.8 and px < d.x1 + 0.8 and pz > d.z0 - 0.8 and pz < d.z1 + 0.8
 		if not mine and not here then
 			if near then
-				avoid[#avoid + 1] = { x0 = d.x0, x1 = d.x1, z0 = d.z0, z1 = d.z1, y0 = d.y0, y1 = d.y1, pad = 0.05 }
+				local y1 = d.y1
+				if d.kind == 1 and d.facing and d.y0 then y1 = math.min(d.y1, d.y0 + 2.0) end
+				avoid[#avoid + 1] = { x0 = d.x0, x1 = d.x1, z0 = d.z0, z1 = d.z1, y0 = d.y0, y1 = y1, pad = 0.05 }
 			elseif d.kind == 1 and d.facing then
 				-- the box behind a real door: you only go in by opening the door, so walking past
 				-- it is fine (Brigadoom's walkway runs right past the northern tower's door)
@@ -4829,7 +4831,8 @@ local function start_walk()
 	walk = { x = it.x, z = it.z, tx0 = it.x, tz0 = it.z, gy = it.y0 and (it.y0 + 1) or nil, label = it.label, obj = it.obj, posoff = it.posoff or 0x24, start = frame, code = map_code(), sx = px, sz = pz,
 	         best = 1e9, progress = frame, side = 1, side_until = 0, tries = 0, push = 0, exit = (it.kind == 0) or nil, place = place_key(),
 	         person = (it.obj and not it.thing and not it.item and not it.monster) or nil,
-	         doorlike = (it.kind == 1 and not it.nx) or nil }
+	         doorlike = (it.kind == 1 and not it.nx) or nil, item = it }
+	walk_resume = nil
 	if it.nx then
 		-- a door: its thin side faces the way in. Start from the side you are on.
 		-- (a door in front of its exit box is always entered from the door's own side)
@@ -4921,11 +4924,32 @@ function exit_push(w, px, pz, dx, dz, d)
 	if p.i == 1 and d > 0.3 then dir = dir_toward(dx, dz) end
 	pcall(function() joypad.set(DIRS[dir + 1]) end)
 end
+-- A long walk cut short by a monster: once the battle is over and you can move again, walk on
+-- to the same place (any button stops it, as always).
+walk_resume = nil
+function walk_resume_step()
+	local r = walk_resume
+	if not r or walk then return end
+	if not r.battle then
+		if in_battle() then r.battle = true
+		elseif frame - r.frame > 120 then walk_resume = nil end      -- no battle came: you stopped it
+		return
+	end
+	if in_battle() or frame - battle_seen_frame < 90 or frame - last_dialogue_frame < 60 or fading() then return end
+	if map_code() ~= r.code or frame - r.frame > 60 * 120 then walk_resume = nil return end
+	walk_resume = nil
+	sel_item = r.it
+	start_walk()
+end
 local function walk_step(host_pressed)
 	if not walk then return end
-	if host_pressed then stop_walk("Stopped.") return end
+	local function keep_resume() if walk and walk.item and (frame - walk.start) > 60 then walk_resume = { it = walk.item, code = walk.code, frame = frame } end end
+	if host_pressed then keep_resume() stop_walk("Stopped.") return end
 	if map_code() ~= walk.code or (walk.place and place_key() ~= walk.place) then stop_walk() return end   -- went through a door
-	if in_battle() or frame - last_dialogue_frame < 10 then stop_walk() return end
+	if in_battle() or frame - last_dialogue_frame < 10 then
+		if in_battle() then keep_resume() if walk_resume then walk_resume.battle = true end end
+		stop_walk() return
+	end
 	local px, _, pz = player_pos()
 	if not px then stop_walk() return end
 	if walk.obj then                                                     -- people move: follow them
@@ -7821,6 +7845,7 @@ while true do
 		PT("alerts") if not walk then alerts(pad) end
 		PT("handle_keys") handle_keys()
 		PT("walk_step") walk_step(controller_pressed)
+		walk_resume_step()
 		PT("route_step") route_step()
 		beacon_step()
 		walk_beep()

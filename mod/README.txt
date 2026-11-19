@@ -429,3 +429,10 @@ CHANGES AFTER 0.51 (not released yet)
   the northern tower look blocked.
 - A door you unlock from its other side is now called "locked from this side", and walking to
   it says it opens from its other side, instead of "It will not open yet".
+- Auto walk carries on after a battle: a long walk that a monster cuts short (out in Doomingale
+  Forest, say) starts again by itself once the battle is over and you can move. Any button stops
+  it, as always.
+- Auto walk from Brigadoom's roof (beside the northern tower's door) back down to the forest no
+  longer gives up straight away with "As close as you can get".
+- Story guide: after beating Morag it moves on to going back to the King (with the way back on
+  foot, or by chimaera wing), instead of still saying to go to Brigadoom.
