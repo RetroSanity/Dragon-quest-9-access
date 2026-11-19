@@ -417,3 +417,5 @@ CHANGES AFTER 0.51 (not released yet)
   north western tower's step); it now goes by the map's own number. The eastern tower step now
   says the bandana chest is outside on the tower top: take the exit outside at the top of the
   stairs inside.
+- Fixed: after the last change, stairs in a basement (Brigadoom's) were all called "higher up,
+  no way there from here", even the ones you came down. Exits are no longer judged by height.

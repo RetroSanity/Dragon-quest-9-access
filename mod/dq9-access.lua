@@ -4554,8 +4554,10 @@ function reach_mark(list)
 			it.away = d
 			it.unreachable = d > (it.kind == 0 and 4.0 or it.kind and REACH_DOOR or REACH_TALK) or nil
 			local iy = it.y0 and it.y1 and (it.y0 + it.y1) / 2 or it.fy
-			if not it.unreachable and iy and reach_near3(R, n, it.x, it.z, iy) == false then it.unreachable = true end
-			it.level = it.unreachable and level_word(n, py, it.x, it.z, iy) or nil
+			-- (not for exits: a stairway's exit box sits up at the top of its steps, above the floor
+			-- you walk up from)
+			if not it.unreachable and iy and it.kind ~= 0 and reach_near3(R, n, it.x, it.z, iy) == false then it.unreachable = true end
+			it.level = it.unreachable and level_word(n, py, it.x, it.z, it.kind ~= 0 and iy or nil) or nil
 		end
 	end
 	return list
