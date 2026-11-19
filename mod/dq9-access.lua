@@ -882,10 +882,18 @@ local function read_menu()
 			last_info = t .. (body ~= "" and ((t ~= "" and ". " or "") .. body) or "")
 			last_info_title, last_info_frame = t, frame
 			if repeat_title then
-				if body ~= "" then queue(body) end
+				-- (a window filling in line by line, "retro +9 Exp." then "retro +9 Exp. lebon +4
+				-- Exp.": say only the new part)
+				local prev = last_info_body or ""
+				local add = body
+				if prev ~= "" and #body > #prev and body:sub(1, #prev) == prev then
+					add = body:sub(#prev + 1):gsub("^[%s%.,]+", "")
+				end
+				if add ~= "" and body ~= prev then queue(add) end
 			else
 				queue(last_info)
 			end
+			last_info_body = body
 		end
 		return
 	end
@@ -923,7 +931,8 @@ local function read_menu()
 		-- a new battle opens on Fight / Flee; until then the list on screen is the last
 		-- battle's command list, still in the buffer: not news
 		if items[0] and items[0].text == "Fight" then battle_fight_seen = true end
-		if not battle_fight_seen and items[0] and items[0].text == "Attack" then
+		if not battle_fight_seen and items[0] and items[0].text == "Attack"
+			and frame - (battle_start_frame or frame) < 240 then
 			menu_sig = ""            -- so the real one, when it comes, is news
 			return
 		end
@@ -1065,7 +1074,10 @@ local function read_yesno()
 	end
 	local player = u32(PLAYER_PTR)
 	local choice = inram(player, 0x260) and u8(player + 0x250) or 0
-	if not visible and u32(EVENT_CHOICE_COUNT) == 2 then
+	-- (the event's two choices stay counted after the question is gone: a message without a
+	-- question in it, such as Heal All's "Retro casts Heal.", is not asking yes or no)
+	if not visible and u32(EVENT_CHOICE_COUNT) == 2
+		and (dlg_last_raw:find("\4\255", 1, true) or clean_text_g(dlg_last_raw):find("?", 1, true)) then
 		visible = true
 		choice = u32(EVENT_CHOICE_CURSOR) == 1 and 1 or 0
 		-- a new question while the box stays up: announce it again
@@ -2240,6 +2252,10 @@ local function door_name(id, kind)
 		if name:match("^Lv %d") or name:match("^Interior %- Lv") then name = nil
 		elseif name:match("^Exterior") then return "door outside" end
 	end
+	-- a door out to another area's part ("Exterior 4" from the Starflight Express): the area
+	if name and m and (name:match("^Exterior") or name:match("^Interior")) and AREAS[m[1]:sub(1, 3)] then
+		return "door to " .. AREAS[m[1]:sub(1, 3)]
+	end
 	-- a way down with no door of its own: just its name ("Well", "Cave")
 	if name == "Well" or name == "Cave" then return name end
 	return name and (name .. " door") or "door"
@@ -2391,7 +2407,7 @@ local function track_map()
 			local d = pending.door
 			local room = room_name()
 			if room and map_name() then
-				label = map_name() .. ", " .. room
+				label = room == map_name() and room or (map_name() .. ", " .. room)
 			elseif d and d.kind == 1 then
 				label = label .. ", " .. (d.label ~= "door" and d.label:gsub(" door$", "") or "inside")
 			elseif d and d.kind == 0 and map_name() and (d.label == "exit" or d.label == "exit to the open field") then
@@ -4480,6 +4496,7 @@ local function walk_step(host_pressed)
 				walk.nopath, walk.co = true, nil
 			elseif coroutine.status(walk.co) == "dead" then
 				walk.co, walk.path, walk.pi, walk.wbest, walk.wprog, walk.rem = nil, p or {}, 1, 1e9, frame, rem or 0
+				walk.plan_d = math.sqrt((walk.x - px) ^ 2 + (walk.z - pz) ^ 2)
 				walk.seg0 = { px, pz }
 				walk.checked_from = frame
 			end
@@ -4534,6 +4551,14 @@ local function walk_step(host_pressed)
 			local label = walk.label
 			stop_walk()
 			say("There is no way to " .. label .. " from here. It is reached from another part of this place, through another door.", true)
+			return
+		end
+		-- a long way across a big field: the plan only reaches so far. Got a good way nearer:
+		-- plan on from here instead of stopping
+		local dnow = math.sqrt(dx * dx + dz * dz)
+		if (walk.rem or 0) > 1.0 and dnow > 4 and walk.plan_d and dnow < walk.plan_d - 3 and (walk.extends or 0) < 12 then
+			walk.extends = (walk.extends or 0) + 1
+			walk.path, walk.co, walk.final = nil, nil, nil
 			return
 		end
 		if (walk.rem or 0) > 1.0 and walk.stage ~= "in" then
@@ -4966,7 +4991,7 @@ function watch_battle_actor()
 	battle_start_frame = battle_start_frame or frame
 	-- back at Fight / Examine / Flee: the first fighter's turn is news again
 	if menu_raw_seen:find("<N=0>Fight</N>", 1, true) then battle_actor_said, battle_fight_seen = nil, true end
-	if not battle_fight_seen then return end
+	if not battle_fight_seen and frame - battle_start_frame < 240 then return end
 	-- the list left over from the last battle is not this battle's
 	if last_menu_frame <= battle_start_frame or frame - last_menu_frame < 20 then return end
 	if battle_phase() ~= 3 or not menu_raw_seen:find("<N=0>Attack</N>", 1, true) then return end
@@ -6117,7 +6142,7 @@ local function say_where()
 	local code = map_code()
 	local px, py, pz = player_pos()
 	local s = (settled and map_key(settled.code) == map_key(code) and settled.label) or map_name() or "Unknown place"
-	if room_name() and map_name() then s = map_name() .. ", " .. room_name() end
+	if room_name() and map_name() and room_name() ~= map_name() then s = map_name() .. ", " .. room_name() end
 	if px then
 		local ex, sz = math.floor(px + 0.5), math.floor(pz + 0.5)
 		s = s .. ". " .. (ex < 0 and ("west " .. -ex) or ("east " .. ex)) .. ", " ..
@@ -6979,9 +7004,6 @@ while true do
 		elseif last_button_name == "a" and equip_state and equip_state:sub(1, 4) == "grid" then equip_popup_arm = frame end
 	end
 	pad_prev = pad
-	-- A pressed once a battle is under way: on Fight, so the command list after it is this battle's
-	if last_button_frame == frame and last_button_name == "a" and battle_start_frame and frame > battle_start_frame + 2
-		and in_battle() then battle_fight_seen = true end
 
 	local ok, err = pcall(function()
 		-- remember experience only out in the world with no message up (the reward is added

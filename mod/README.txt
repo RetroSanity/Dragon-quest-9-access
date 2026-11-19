@@ -333,3 +333,12 @@ CHANGES AFTER 0.51 (not released yet)
   the beacon and the route now take you round to the front of the counter and face you to them,
   instead of stopping on the far side of a wall. This uses the game's own marking of furniture
   you can talk across.
+- The battle start still sometimes read the last battle's "Retro's turn. Attack" before "Fight";
+  it should not any more.
+- Heal All no longer says "Yes or no? Yes" after each spell (it was a question from earlier).
+- Experience after a battle is read once per person ("retro +9 Exp." then "lebon +4 Exp."),
+  instead of the whole growing line again for each new name.
+- Auto walk over a long way in a big field keeps going instead of stopping part way with "As close
+  as you can get".
+- Doors out of the Starflight Express say where they go ("door to Mountain Pass") instead of
+  "Exterior door", and the carriage is no longer named twice when you go in.
