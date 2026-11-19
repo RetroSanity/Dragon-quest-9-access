@@ -436,3 +436,5 @@ CHANGES AFTER 0.51 (not released yet)
   longer gives up straight away with "As close as you can get".
 - Story guide: after beating Morag it moves on to going back to the King (with the way back on
   foot, or by chimaera wing), instead of still saying to go to Brigadoom.
+- Battles: picking which monster of a group to attack, left and right now say each one as the
+  arrow moves ("Bodkin fletcher A", "Bodkin fletcher B"); before, only the group was read.

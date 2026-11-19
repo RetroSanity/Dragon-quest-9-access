@@ -335,12 +335,53 @@ function mon_label_list(items, m)
 			local take = {}
 			for _ = 1, g.n do take[#take + 1] = table.remove(standing[g.kind], 1) end
 			g.it.text = mon_letters_text(g.name, take)
+			g.it.letters, g.it.mname = take, g.name
 		elseif g.n == 1 then
 			g.it.text = g.name
 		end
 	end
 end
 
+-- Picking which one of a group to attack (left and right move the arrow between "Slime A" and
+-- "Slime B" while the list shows the group): the game keeps the one picked, counted within the
+-- group, here. Say each one as the arrow moves.
+TARGET_SUB = 0x02395354
+tgt_watch = { key = nil, sub = nil }
+function watch_target_sub(items, cursor, raw)
+	if not in_battle() then tgt_watch.key = nil return end
+	-- (the buffer can show another window between frames: the list is gone only after a while)
+	local c = raw:find("<x>", 1, true) and tonumber(raw:match("<CURSOR=(%d+)>") or "")
+	if not c then
+		if frame - (tgt_watch.seen or -1000) > 90 then tgt_watch.key = nil end
+		if not tgt_watch.key then return end
+		c, raw = tgt_watch.c, tgt_watch.raw
+	end
+	tgt_watch.seen, tgt_watch.c, tgt_watch.raw = frame, c, raw
+	-- the group the list's cursor is on, from the list itself (the menu reader may not have
+	-- taken this list in yet: just after the mod starts, say)
+	local it = items and items[c]
+	if not (it and it.letters) then
+		local name, n
+		for idx, body in raw:gmatch("<N=(%d+)>(.-)</N>") do
+			if tonumber(idx) == c then name, n = body:match("^(.-)<X=%d+><x>%s*(%d+)") end
+		end
+		n = tonumber(n or "")
+		if not name or not n or n < 2 then return end
+		local letters = {}
+		for i = 1, n do letters[i] = MON_LETTERS:sub(i, i) end
+		it = { text = name .. " x" .. n, letters = letters, mname = name }
+	end
+	if #it.letters < 2 then return end
+	local sub = mainmemory.read_u32_le(TARGET_SUB - 0x02000000)
+	if sub > 25 then return end
+	local key = it.text .. "|" .. c
+	if tgt_watch.key ~= key then tgt_watch.key, tgt_watch.sub = key, sub return end
+	if sub ~= tgt_watch.sub then
+		tgt_watch.sub = sub
+		local l = it.letters[sub + 1]
+		if l then say(it.mname .. " " .. l, true) end
+	end
+end
 -- menu state lives here because the message reader resets it
 MENU = 0x02118FFC
 local menu_raw_seen, menu_seen_count = "", 0
@@ -7820,6 +7861,7 @@ while true do
 		PT("read_dialogue") read_dialogue()
 		PT("spell_cost_tick") spell_cost_tick()
 		PT("read_menu") read_menu()
+		pcall(watch_target_sub, menu_items, menu_cursor, menu_raw_seen)
 		PT("watch_spinner") watch_spinner()
 		PT("read_greeting_entry") read_greeting_entry()
 		PT("read_yesno") read_yesno()
