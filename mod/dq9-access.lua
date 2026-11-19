@@ -861,7 +861,8 @@ local function read_menu()
 		PLAIN_PENDING = nil
 		-- (gone from the screen meanwhile: the last spell's, as the cursor moved on)
 		local current = pm == nil or menu_raw_seen == pm or frame - (menu_hist[pm] or -1000) <= 6
-		if t ~= last_said and current then queue(t) end
+		local recent = RECENT_DSC and RECENT_DSC[t] and frame - RECENT_DSC[t] < 900
+		if t ~= last_said and current and not recent then queue(t) end
 	end
 	local head = menu_fingerprint()
 	if head == menu_head and menu_seen_count > 1 then return end
@@ -930,6 +931,7 @@ local function read_menu()
 				for _, d in pairs(ITEM_DESC) do ITEM_DESC_SET[clean_text_g(d)] = true end
 			end
 			local skip = (ITEM_DESC_SET[t] and frame - (last_dsc_frame or -1000) < 120) or (MS and (MS.on_item or MS.open))
+				or (RECENT_DSC and RECENT_DSC[t] and frame - RECENT_DSC[t] < 900)
 			if not skip and #t > 12 and t:match("%a%a%a") and t:match("[%.!%?]$") and t ~= plain_said and t ~= dlg_last_text and t ~= last_said
 				and not is_layout_label(t) then
 				plain_said = t
@@ -1031,7 +1033,13 @@ local function read_menu()
 	local prev_count = last_menu_count
 	last_menu_count = count
 	local dsc = item_desc_of(it.text)
-	if dsc then last_dsc_frame = frame end
+	if dsc then
+		last_dsc_frame = frame
+		-- (the description box lags behind the cursor: when it catches up, or still shows the
+		-- last item's, that text is not news)
+		RECENT_DSC = RECENT_DSC or {}
+		RECENT_DSC[clean_text_g(dsc)] = frame
+	end
 	if same_menu then
 		say(text, true)
 		if dsc then queue(dsc) end
@@ -2757,6 +2765,9 @@ local function characters()
 			if story then x, z = s32(o + 0x64) / 4096, s32(o + 0x6C) / 4096
 			else x, z = s32(o + 0x24) / 4096, s32(o + 0x2C) / 4096 end
 			local far = math.abs(x) > 1000 or math.abs(z) > 1000       -- parked off the map
+			-- (or parked at exactly -100, -100: the Krak Pot at the Quester's Rest before Erinn
+			-- hands it over)
+			if math.abs(x + 100) < 0.01 and math.abs(z + 100) < 0.01 then far = true end
 			if not far and not (px and math.abs(x - px) < 0.05 and math.abs(z - pz) < 0.05) then
 				-- people are drawn from a character sprite (n001a ...); signs, statues and the
 				-- like have none

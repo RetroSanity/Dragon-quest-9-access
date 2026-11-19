@@ -103,6 +103,9 @@ Speech and other keys:
 R          Repeat the last thing said.
 Ctrl       Press and let go of Ctrl on its own to stop speaking.
 Shift + M  Mark this spot so you can find it again later (category Marks).
+Y          Story guide: where to go next. In a dungeon that has a walkthrough (Brigadoom), each
+           press reads the next step for the part of the dungeon you are in; after the last
+           step, the story's next step. It also says what opens the locked doors where you are.
 T          Turn the "blocked" alert on or off.
 F          The 3D beacon to the thing you picked, to walk there yourself. F again stops it.
 C          Save a snapshot of what the game is showing to dq9-access-log.txt.
@@ -119,6 +122,7 @@ Hold the left trigger (LT), then:
                                  the beacon.
   Top face button (Y)            The route to the thing you picked, step by step (while the
                                  beacon is on: how far there is to go and the next turns).
+  Back (Select / View)           The story guide, as Y on the keyboard.
 
 
 THE GAME'S OWN KEYS
@@ -449,3 +453,7 @@ CHANGES AFTER 0.51 (not released yet)
   last, a moment after you arrive, instead of auto walk trying and getting stuck. Before, fields
   were too big to check.
 - Just after a battle the exits list no longer says "No exits nearby" for a moment.
+- Item lists: when you move quickly through the bag, the last item's description no longer
+  comes again after the next item's name.
+- The Krak Pot, hidden away at the Quester's Rest before Erinn gives it to you, is no longer
+  listed as a person "107 steps up, 100 steps left, no way there from here".
