@@ -346,6 +346,19 @@ local menu_raw_seen, menu_seen_count = "", 0
 local menu_raw_done, menu_sig, menu_cursor = "", "", -1
 local menu_items, menu_title = {}, nil
 local last_info, last_info_frame, last_info_title = "", -1000, nil
+-- A window filling in line by line ("retro +9 Exp." then "retro +9 Exp. lebon +4 Exp."): the new
+-- part only, compared word by word (the spacing round the numbers can differ); nil if it is not
+-- the last window grown
+function info_growth(body)
+	if frame - last_info_frame >= 300 then return nil end
+	local function words(x) local w = {} for t in x:gmatch("[^%s]+") do w[#w + 1] = (t:gsub("[%.,]+$", "")) end return w end
+	local pw, bw = words(last_info_body or ""), words(body)
+	if #pw == 0 or #bw <= #pw then return nil end
+	for i = 1, #pw do if pw[i] ~= bw[i] then return nil end end
+	local rest = {}
+	for t in body:gmatch("[^%s]+") do rest[#rest + 1] = t end
+	return table.concat(rest, " ", #pw + 1)
+end
 
 local function pad_state()
 	local ok, j = pcall(function() return joypad.get() end)
@@ -868,7 +881,9 @@ local function read_menu()
 			if not skip and #t > 12 and t:match("%a%a%a") and t:match("[%.!%?]$") and t ~= plain_said and t ~= dlg_last_text and t ~= last_said
 				and not is_layout_label(t) then
 				plain_said = t
-				queue(t)
+				-- the experience window filling in after its first line came with the title
+				local add = info_growth(t)
+				if add then queue(add) last_info_body, last_info_frame = t, frame else queue(t) end
 			end
 			return
 		end
@@ -878,18 +893,16 @@ local function read_menu()
 			local body = clean((mv:gsub("<TITLE=%d+>.-</TITLE>", ""))):gsub("(%d)(%a)", "%1 %2"):gsub("Lv%. ", "level ")
 			local t = clean(title)
 			-- a window that updates line by line (attributes going up): say its title only once
-			local repeat_title = t == last_info_title and frame - last_info_frame < 300
+			local recent = frame - last_info_frame < 300
+			local repeat_title = t == last_info_title and recent
 			last_info = t .. (body ~= "" and ((t ~= "" and ". " or "") .. body) or "")
 			last_info_title, last_info_frame = t, frame
-			if repeat_title then
-				-- (a window filling in line by line, "retro +9 Exp." then "retro +9 Exp. lebon +4
-				-- Exp.": say only the new part)
-				local prev = last_info_body or ""
-				local add = body
-				if prev ~= "" and #body > #prev and body:sub(1, #prev) == prev then
-					add = body:sub(#prev + 1):gsub("^[%s%.,]+", "")
-				end
-				if add ~= "" and body ~= prev then queue(add) end
+			local prev = last_info_body or ""
+			local add = recent and info_growth(body)
+			if add then
+				queue(add)
+			elseif repeat_title then
+				if body ~= "" and body ~= prev then queue(body) end
 			else
 				queue(last_info)
 			end
@@ -4742,7 +4755,16 @@ local function party_records()
 			            maxmp = u16(n + 0x32), voc = u8(n + 0x914) }   -- the vocation (a word at +0x914)
 			local lv = u16(n + 0x130 + 2 * r.voc)
 			if lv > 0 and lv < 100 then r.level = lv end
-			if name == hero then table.insert(list, 1, r) else list[#list + 1] = r end
+			r.slot = k
+			if name == hero then table.insert(list, 1, r) r.hero = true else list[#list + 1] = r end
+		end
+	end
+	-- the hero's name is not always where it is looked for; the hero's record is the last of the
+	-- four (the companions fill them from the first), and the party goes hero first, then the
+	-- companions in the order they joined, as on the battle screen
+	if not (list[1] and list[1].hero) then
+		for i, r in ipairs(list) do
+			if r.slot == 3 and i > 1 then table.remove(list, i) table.insert(list, 1, r) break end
 		end
 	end
 	return list
@@ -4775,32 +4797,7 @@ end
 
 -- In a battle the live numbers are kept in the battle's own copy of each fighter. Find it once per
 -- battle by looking for the leader's maximum HP and MP side by side, then trust it while it checks out.
-local battle_base, battle_checked = nil, -1000
 BATTLE_STRIDE = 0x448
-local function find_battle_party(members)
-	if #members == 0 then return nil end
-	local m1 = members[1]
-	-- a fighter in battle: two pointers 0x18 apart, then max HP, max MP, HP, MP
-	for _, range in ipairs({ { 0x02380000, 0x60000 }, { 0x02300000, 0x80000 }, { 0x023E0000, 0x20000 } }) do
-	local from, len = range[1], range[2]
-	for _, a in ipairs(find_words(from + 8, len - 16, m1.maxhp | (m1.maxmp << 16))) do
-		local mh = m1.maxhp
-		do
-			local hp, mp = u16(a + 4), u16(a + 6)
-			local p1, p2 = u32(a - 8), u32(a - 4)
-			if hp <= mh and mp <= m1.maxmp and inram(p1, 4) and inram(p2, 4) and p1 - p2 == 0x18 then
-				local good = true
-				for k = 2, #members do
-					local b = a + (k - 1) * BATTLE_STRIDE
-					if u16(b) ~= members[k].maxhp or u16(b + 2) ~= members[k].maxmp then good = false end
-				end
-				if good then return a end
-			end
-		end
-	end
-	end
-	return nil
-end
 
 -- Whose turn it is to pick a command: the battle keeps the number of that fighter here
 -- (fighters are 0x448 bytes apart, in the battle's own order), with max HP and MP at the start.
@@ -4826,26 +4823,30 @@ function turn_text(name)
 end
 
 -- everyone's HP and MP right now (in a battle, from the fighters)
-function party_now()
-	local members = party_records()
-	if #members == 0 then return members end
-	if in_battle() then
-		local ok = battle_base and u16(battle_base) == members[1].maxhp and u16(battle_base + 4) <= members[1].maxhp
-			and u32(battle_base - 8) - u32(battle_base - 4) == 0x18
-		if not ok and frame - battle_checked > 30 then
-			battle_checked = frame
-			battle_base = find_battle_party(members)
-		end
-		if battle_base then
-			for k, r in ipairs(members) do
-				local b = battle_base + (k - 1) * BATTLE_STRIDE
-				if u16(b) == r.maxhp then r.hp, r.mp = u16(b + 4), u16(b + 6) end
+-- In a battle the records keep the HP and MP from before it; the battle's own fighters (0x448
+-- bytes apart from BATTLE_FIGHTER0, in their own order: max HP, max MP, HP, MP) have them now.
+-- Each fighter goes to the party member with the same max HP and max MP.
+function battle_values(members)
+	if #members == 0 or not in_battle() then return members end
+	local used = {}
+	for i = 0, 3 do
+		local b = BATTLE_FIGHTER0 + i * BATTLE_STRIDE
+		if inram(b, 8) and u32(b - 8) - u32(b - 4) == 0x18 then
+			local mh, mm, hp, mp = u16(b), u16(b + 2), u16(b + 4), u16(b + 6)
+			if mh > 0 and hp <= mh and mp <= mm then
+				for _, r in ipairs(members) do
+					if not used[r] and r.maxhp == mh and r.maxmp == mm then
+						r.hp, r.mp, used[r] = hp, mp, true
+						break
+					end
+				end
 			end
 		end
-	else
-		battle_base = nil
 	end
 	return members
+end
+function party_now()
+	return battle_values(party_records())
 end
 -- H: everyone's HP.  M: everyone's MP.
 function say_hp_mp(which)
@@ -4865,25 +4866,9 @@ function say_hp_mp(which)
 	say(table.concat(parts, ". "), true)
 end
 local function say_party(short)
-	local members = party_records()
+	local members = battle_values(party_records())
 	if #members == 0 then say("No party information.") return end
 	local in_battle = in_battle()
-	if in_battle then
-		local ok = battle_base and u16(battle_base) == members[1].maxhp and u16(battle_base + 4) <= members[1].maxhp
-			and u32(battle_base - 8) - u32(battle_base - 4) == 0x18
-		if not ok and frame - battle_checked > 30 then
-			battle_checked = frame
-			battle_base = find_battle_party(members)
-		end
-		if battle_base then
-			for k, r in ipairs(members) do
-				local b = battle_base + (k - 1) * BATTLE_STRIDE
-				if u16(b) == r.maxhp then r.hp, r.mp = u16(b + 4), u16(b + 6) end
-			end
-		end
-	else
-		battle_base = nil
-	end
 	local parts = {}
 	for _, r in ipairs(members) do
 		local s = r.name .. ", " .. r.hp .. " of " .. r.maxhp .. " HP"
@@ -6682,7 +6667,8 @@ function walk_beep()
 		left = math.sqrt(((walk.tx0 or walk.x) - px) ^ 2 + ((walk.tz0 or walk.z) - pz) ^ 2)
 	end
 	if WALK_BEEP_ON and WALK_BEEP_VOL > 0 then walk_beep_sound() end
-	WALK_BEEP_NEXT = frame + math.floor(60 * math.max(0.1, math.min(1.0, 0.08 + left * 0.045)) + 0.5)
+	-- (quick from the start: half a second apart at 20 steps or more, down to a tenth of a second)
+	WALK_BEEP_NEXT = frame + math.floor(60 * math.max(0.1, math.min(0.5, 0.08 + left * 0.021)) + 0.5)
 end
 
 ------------------------------------------------------------------------------ mod settings --

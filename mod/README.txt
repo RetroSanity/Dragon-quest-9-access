@@ -342,3 +342,8 @@ CHANGES AFTER 0.51 (not released yet)
   as you can get".
 - Doors out of the Starflight Express say where they go ("door to Mountain Pass") instead of
   "Exterior door", and the carriage is no longer named twice when you go in.
+- HP and MP in a battle (L3, H, M) are the battle's own, so they go down and up as the fight goes;
+  before, a party of more than one could be given the numbers from before the battle.
+- The party is read hero first, then the companions in the order they joined, as on screen.
+- The auto walk beep is quicker from the start: half a second apart when far, down to a tenth
+  of a second when close.
