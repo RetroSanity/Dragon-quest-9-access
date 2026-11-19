@@ -3344,8 +3344,11 @@ local function step_category(delta)
 			local away = 0
 			for _, it in ipairs(items) do if it.unreachable then away = away + 1 end end
 			local note = ""
-			if away == n and n > 0 then note = ", all in other rooms, no way there from here"
-			elseif away > 0 then note = ", " .. away .. " of them in other rooms" end
+			-- (out in the open there are no rooms: across water or up a cliff)
+			local code = map_code() or ""
+			local open = code:match("^F") or code:match("^S")
+			if away == n and n > 0 then note = open and ", all out of reach from here" or ", all in other rooms, no way there from here"
+			elseif away > 0 then note = ", " .. away .. (open and " of them out of reach from here" or " of them in other rooms") end
 			say(CATEGORIES[category] .. ", " .. (n > 0 and n or "none here right now") .. note, true)
 			return
 		end
@@ -4142,11 +4145,12 @@ function reach_mark(list)
 	-- a scrap of floor (lying in bed, standing on a table in a scene): no telling yet
 	if (R.count or 0) < 16 then return list end
 	for _, it in ipairs(list) do
-		-- (exits are left alone: they are boxes at the map's edge you walk out through)
-		if not it.mark and it.kind ~= 0 then
+		-- (an exit is a box at the map's edge you walk out through: it only has to be close to
+		-- where you can walk; one across a river is out of reach)
+		if not it.mark then
 			local d = reach_near(R, it.x, it.z)
 			it.away = d
-			it.unreachable = d > (it.kind and REACH_DOOR or REACH_TALK) or nil
+			it.unreachable = d > (it.kind == 0 and 4.0 or it.kind and REACH_DOOR or REACH_TALK) or nil
 		end
 	end
 	return list
@@ -4154,6 +4158,11 @@ end
 -- said when a thing on the list cannot be walked to from here
 function unreachable_msg(it)
 	if not it.unreachable then return nil end
+	local code = map_code() or ""
+	if code:match("^F") or code:match("^S") or it.kind == 0 then
+		-- out in the open: water, cliffs or a fence in between
+		return "There is no way to " .. it.label .. " from here. It is across water, a cliff or a fence; the way there is round through another part of this area, or another area."
+	end
 	local what = it.kind and "That door is" or "It is"
 	return "There is no way to " .. it.label .. " from here. " .. what .. " in another room or behind a wall. Go through a door to get there."
 end

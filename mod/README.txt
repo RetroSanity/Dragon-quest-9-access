@@ -365,3 +365,7 @@ CHANGES AFTER 0.51 (not released yet)
 - Inns, shops and the church: the question ("Will you be staying?") is read on its own, not run
   together with the next thing said.
 - A spell's description no longer comes after the next spell's name when you move quickly.
+- Exits you cannot walk to from where you are (across a river, up a cliff) now end with "no way
+  there from here" and come last, like doors and people in other rooms. Out in the open the
+  category says "out of reach from here", and auto walk explains that the way there is round
+  through another part of the area, or another area, instead of walking a few steps and stopping.
