@@ -57,7 +57,7 @@ is built from your own copy of the game.
    - adds the mod's part to the game's code and builds the game again (a few minutes),
    - puts the mod in its own folder, **DQ9 access**, in your Documents.
    Your save and settings are not touched.
-3. Start Dragon Quest IX as usual. After a moment you hear "Dragon Quest 9 access 0.51 for the
+3. Start Dragon Quest IX as usual. After a moment you hear "Dragon Quest 9 access 0.52 for the
    PC version is running. Press K for keys."
 
 The full guide to the mod, its keys and everything it reads is in
