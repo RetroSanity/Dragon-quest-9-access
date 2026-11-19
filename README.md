@@ -26,6 +26,9 @@ and what is around you, auto walk to people, doors, stairs and chests, and much 
 - Auto walk to anything on the list, round walls and furniture, with a beep that gets faster as
   you get close; spoken step-by-step routes; and a 3D beacon on headphones (OpenAL Soft with
   HRTF) to walk there yourself, following a knock placed where the next turn of the way is.
+- A story guide (LT + Back, or Y): where to go next in the story, worked out from the game's own
+  story progress, and what opens each locked door where you are. Dungeons with a walkthrough
+  (Brigadoom so far) are read step by step for the part you are in.
 - Mod settings at the end of the game's own Misc. menu: the sounds' volumes, a beacon test and
   the alerts.
 - Speech through Prism: NVDA, JAWS, Narrator, ZDSR, System Access, PC-Talker, ZoomText and
