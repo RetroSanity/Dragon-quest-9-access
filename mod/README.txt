@@ -17,7 +17,7 @@ ROM with its BUILD.bat or its installer (github.com/sackchief/dqix-enhanced). Th
    it is), adds the mod to it, builds the game again (a few minutes) and puts the mod in its
    own folder, "DQ9 access" in your Documents. Your save and settings are not touched.
 3. Run Dragon Quest IX as usual (your shortcut, or dqix.exe in the game folder). After a moment
-   you hear "Dragon Quest 9 access 0.51 for the PC version is running. Press K for keys."
+   you hear "Dragon Quest 9 access 0.52 for the PC version is running. Press K for keys."
 
 You can run "Install DQ9 Access.bat" again at any time (there is a copy in the DQ9 access
 folder): for example after updating the PC version itself, which builds the game again
@@ -298,8 +298,10 @@ CHANGES IN 0.51
   there from here"; the category says how many are in other rooms ("People, 6, 5 of them in
   other rooms"), and auto walk tells you to go through a door instead of walking into a wall.
 
-CHANGES AFTER 0.51 (not released yet)
--------------------------------------
+CHANGES IN 0.52
+---------------
+This version changes only the mod's own files: it updates itself when the game starts, with no
+need to run the installer again.
 - The beacon is quiet while someone talks, a menu is open, a scene plays or a battle is on, and
   carries on afterwards. It follows people and monsters who walk about. The route key (P, or LT and
   Y) while it is on says how far there is to go and the next turns ("12
