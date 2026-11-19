@@ -3281,15 +3281,18 @@ function guide_hear(text)
 	end
 end
 -- what the locked doors here need
-function guide_doors()
+function guide_doors(skip)
 	local out = {}
 	local ok, list = pcall(build_nearby_g)
 	if not ok or type(list) ~= "table" then return out end
 	local ch = story_now() // 100
 	local seen = {}
 	for _, d in ipairs(list) do
-		if d.kind == 1 and d.locked and not seen[d.label] then
+		local skipped = false
+		for _, gid in ipairs(d.gids or {}) do if (skip and skip[gid]) or seen["g" .. gid] then skipped = true end end
+		if d.kind == 1 and d.locked and not seen[d.label] and not skipped then
 			seen[d.label] = true
+			for _, gid in ipairs(d.gids or {}) do seen["g" .. gid] = true end
 			local name = d.label:gsub(", opens with .*$", ""):gsub(", locked$", ""):gsub("^locked ", "")
 			if d.lock_key and KEY_FROM[d.lock_key] then
 				local k = KEY_FROM[d.lock_key]
@@ -3301,6 +3304,8 @@ function guide_doors()
 				else
 					out[#out + 1] = name .. " opens with " .. key .. ", which you get later in the story: " .. k.text .. "."
 				end
+			elseif door_opens_inside(u16(MAPID), d.gids) then
+				out[#out + 1] = name:gsub(", left$", ""):gsub(", right$", "") .. " is locked from this side: you unlock it from its other side, so find the way round to there."
 			else
 				local why = nil
 				local code = map_code() or ""
@@ -3313,15 +3318,132 @@ function guide_doors()
 	end
 	return out
 end
+-- Step by step through a dungeon, by the part of it you are in (the map), until its boss is
+-- beaten (the story number moves past "before"). Door notes: what opens a locked door (by map
+-- number and door part number). The words are from walkthroughs of each dungeon.
+DUNGEON_GUIDE = {
+	D03 = { name = "Brigadoom", before = 306,
+		M01 = {
+			"You are in Brigadoom's ruins; you came in at the south. Optional: the eastern tower, on the east side of the ruins. Go in through the eastern tower door, climb the stairs to a chest with a trailblazing bandana, good for a healer, then come back out.",
+			"The way on is underground. In the exits list there are two exits to the basement: take the one up and to the left of the entrance, on the north west side of the ruins, just north of the way into the western tower.",
+			"The double door on the west side, the bottom door, is locked and cannot be opened from out here; the exit to western tower in the exits list is behind it, so walking there stops at the door. You unlock it from inside the western tower; after that it is a short cut in and out, to go back to Zere to rest.",
+		},
+		M03 = {
+			"The basement. Optional: go north, then east, and follow the eastern path to two chests, with clogs and a mini medal.",
+			"Then come back until you can go south. The stairs up on the left lead into the western tower, the way on: pick exit to western tower in the exits list.",
+			"Going on south instead leads to a chest with a belle cap, and then a locked door that needs the Ultimate Key, which you only get much later in the story.",
+		},
+		M05 = {
+			"The western tower. Optional: the drawers in the north and a pot in the south hold items. Then go up the stairs next to where you came in.",
+			"Go south and unlock the door there. That opens the locked double door to the ruins: a short cut you can use to go back to Zere to rest and come straight back.",
+			"Then go north along the path. A door in the north wall has barrels with items. Go through the door in the north and take the stairs beyond it, to the second floor of the northern tower.",
+		},
+		M06 = {
+			"The second floor of the northern tower. Optional: go east to the stairs down to the princess's room, with a chest holding a gold bracer, and a portrait, a letter and a diary to read.",
+			"Then go round the room clockwise until you find a door to the north: the throne room, where Morag is. Heal and get ready before you go in.",
+			"Talk to Morag to fight her. She mostly attacks with her knife, and sometimes casts a spell like Crack or dances; keep your healer's HP up. A mage can cast Sap on her for the first couple of turns. After the fight, talk to the Wight Knight, then to Princess Simona.",
+		},
+		M07 = {
+			"The princess's room. Open the chest for a gold bracer, and examine the portrait, the letter on the bookshelf and the diary.",
+			"Then go back up the stairs and round the floor clockwise to the door in the north: the throne room, where Morag is.",
+		},
+		M04 = {
+			"The eastern tower. Climb the stairs to the top for the chest with the trailblazing bandana, then go back out to the ruins and take the stairs down to the basement on the north west side.",
+		},
+		M02 = {
+			"The north western tower. It is not on the way to Morag. The way on is the basement under the ruins, then up into the western tower.",
+		},
+		doors = { [7301] = { [8] = "it opens from the inside: you unlock it from the western tower. Go down to the basement, up into the western tower, then south to this door; after that it is a short cut." } },
+	},
+}
+function dungeon_guide()
+	local code = map_code() or ""
+	local g = DUNGEON_GUIDE[code:sub(1, 3)]
+	if not g or story_now() > g.before then return nil end
+	local sub = code:sub(4, 6)
+	if sub == "" then sub = "M01" end
+	local part = g[sub]
+	if not part then return nil end
+	return part, g, code
+end
+-- notes for this dungeon's locked doors, once per door
+function dungeon_door_notes(g)
+	local out = {}
+	local mapid = u16(MAPID)
+	local notes = g.doors and g.doors[mapid]
+	if not notes then return out end
+	local ok, list = pcall(build_nearby_g)
+	if not ok or type(list) ~= "table" then return out end
+	local done = {}
+	for _, d in ipairs(list) do
+		if d.kind == 1 and d.locked and d.gids then
+			for _, gid in ipairs(d.gids) do
+				if notes[gid] and not done[gid] then
+					done[gid] = true
+					local name = d.label:gsub(", opens with .*$", ""):gsub(", locked$", ""):gsub("^locked ", ""):gsub(", left$", ""):gsub(", right$", "")
+					out[#out + 1] = name .. ": " .. notes[gid]
+				end
+			end
+		end
+	end
+	return out, done
+end
+-- each press: the next step of the part of the dungeon you are in; after the last one, the
+-- story's next step; then round again. A new part starts from its first step.
+guide_press = { code = nil, n = 0 }
 function say_guide()
+	local part, g, code = dungeon_guide()
+	if part then
+		if guide_press.code ~= code then guide_press.code, guide_press.n = code, 0 end
+		guide_press.n = guide_press.n + 1
+		if guide_press.n <= #part then
+			local i = guide_press.n
+			local text = part[i]
+			-- (the short cut already unlocked: no need to unlock it)
+			if code_unlocked_shortcut(g) and text:find("double door", 1, true) then
+				text = "The double door on the west side is unlocked now: your short cut in and out of the western tower."
+			end
+			local head = (i == 1 and (g.name .. " walkthrough, ") or "") .. "step " .. i .. " of " .. #part .. ". "
+			local tail = ""
+			if i == #part then
+				-- (doors this dungeon's steps already explain are left out)
+				local _, done = dungeon_door_notes(g)
+				local notes = guide_doors(done or {})
+				if #notes > 0 then tail = " Other locked doors here: " .. table.concat(notes, " ") end
+				tail = tail .. " Press again for the story's next step."
+			else
+				tail = " Press again for the next step."
+			end
+			say(head .. text .. tail, true)
+			return
+		end
+		guide_press.n = 0
+	end
 	local i = guide_step()
 	local s = GUIDE[i]
-	local parts = { "Next: " .. s.text }
+	local parts = { "Next in the story: " .. s.text }
 	local doors = guide_doors()
 	if #doors > 0 then parts[#parts + 1] = "Locked doors here: " .. table.concat(doors, " ") end
 	say(table.concat(parts, " "), true)
 end
+-- Brigadoom's short cut: the door's lock rule says flag 126 opens it
+function code_unlocked_shortcut(g)
+	if g.name ~= "Brigadoom" or u16(MAPID) ~= 7301 then return false end
+	return flag_bit(STORY_BASE + 0x8C, 126)
+end
 guide_step_g, guide_doors_g = guide_step, guide_doors
+-- a locked door you unlock from its other side (a rule that unlocks it with no key)
+function door_opens_inside(mapid, gids)
+	local db = DOOR_LOCKS and DOOR_LOCKS[mapid]
+	if not db or not gids then return false end
+	local now = story_now()
+	for _, gid in ipairs(gids) do
+		for _, r in ipairs(db[gid] or {}) do
+			if now >= r[1] and now <= r[2] and r[4] == "u" and r[5] == 0 then return true end
+		end
+	end
+	return false
+end
 -- the door part numbers of the door nearest a spot (a double door has two parts); id: the place
 -- it leads to, when known
 function door_gids_at(x, z, r, id)

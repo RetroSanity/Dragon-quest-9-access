@@ -400,3 +400,11 @@ CHANGES AFTER 0.51 (not released yet)
   that the story opens it later (Stornway's treasure room: the King opens it as your reward).
 - Doors and exits to rooms that only had a floor number now say the room: "exit to basement",
   "exit to northern tower throne room" (in Brigadoom it used to say "exit to door").
+- Dungeon walkthroughs: in a dungeon that has one (Brigadoom so far), LT + Back (or Y) reads a
+  step by step walkthrough for the part of the dungeon you are in, one step per press ("step 2
+  of 3"): where to go, the optional chests, and how its locked doors open (Brigadoom's west
+  double door is unlocked from inside the western tower and is then a short cut; the basement's
+  door needs the Ultimate Key). After the last step, one more press gives the story's next
+  step. Going into another part of the dungeon starts again from its first step.
+- A door you unlock from its other side is now called that in the guide, instead of "kept shut
+  by the story".
