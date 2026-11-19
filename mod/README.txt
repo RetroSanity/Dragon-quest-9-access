@@ -369,3 +369,16 @@ CHANGES AFTER 0.51 (not released yet)
   there from here" and come last, like doors and people in other rooms. Out in the open the
   category says "out of reach from here", and auto walk explains that the way there is round
   through another part of the area, or another area, instead of walking a few steps and stopping.
+- Battle Records: every screen reads now. The first screen says the time played and how complete
+  the Defeated Monster List, Wardrobe and Item List are, then the button you are on (Defeated
+  Monster List, Wardrobe, Item List, Accolades Earnt) and again when you come back to it.
+  - Defeated Monster List: how complete it is and how many kinds you have defeated; View All
+    Monsters reads the list across the two columns with the page ("Cruelcumber, 2 of 16, page 1
+    of 3"), then the monster's page: family, experience, gold, how many defeated, the item it
+    drops, where it lives and its description. View By Family reads the families across, each
+    with how many you have defeated.
+  - Wardrobe and Item List: how complete they are and how many collected, the kinds (Weapons,
+    Swords ...), then each thing with its description.
+  - Accolades Earnt: each accolade with what it was awarded for.
+  Coming back out of one list and going into another (Wardrobe, then Item List) works; before,
+  the second list could stay silent. No "blocked" alert while you move the cursor in these screens.

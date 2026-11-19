@@ -4776,6 +4776,19 @@ function bump_sound(pad)
 end
 
 local function alerts(pad)
+	-- Battle Records' screens leave the game's "walking" mark on: pushing the D-pad there is not
+	-- walking into anything (until you are seen to move again)
+	do
+		local qx, _, qz = player_pos()
+		if qx and last_px and (math.abs(qx - last_px) > 0.01 or math.abs(qz - last_pz) > 0.01) then
+			if rec then rec.spoke_frame = nil end
+			if ui then ui.spoke_frame = nil end
+		end
+		if (rec and rec.spoke_frame and frame - rec.spoke_frame < 3600) or (ui and ui.spoke_frame and frame - ui.spoke_frame < 3600) then
+			last_px, last_pz = qx, qz
+			return
+		end
+	end
 	pcall(bump_sound, pad)
 	if not ALERTS_ON then return end
 	local px, _, pz = player_pos()
@@ -5406,6 +5419,63 @@ local function read_layout()
 		end
 	end
 	if total > 1 then line = line .. ", " .. pos .. " of " .. total end
+	-- the Defeated Monster List's first choice (View All Monsters / View By Family): say how
+	-- complete the list is, once (the numbers are boxes of kind 0xFA03 beside the words)
+	if text:match("^View ") and layout_string(L, 2) == "Defeated Monster List Completion:" and MON_HEAD_SAID ~= W then
+		MON_HEAD_SAID = W
+		local nums = {}
+		for i = 0, math.min(count - 1, 12) do
+			local b = W + 0x30 * i
+			if u16(b + 0x12) == 0xFA03 then nums[#nums + 1] = { y = u16(b + 8), v = u32(b) } end
+		end
+		table.sort(nums, function(p, q) return p.y < q.y end)
+		if nums[1] and nums[2] then
+			line = "Defeated Monster List, " .. nums[1].v .. " percent complete, " .. nums[2].v .. " kinds of monster defeated. " .. line
+		end
+	end
+	-- the Defeated Monster List is two columns read across (Slime, Cruelcumber, Teeny sanguini
+	-- ...): count along the rows, and say the page (its "1 / 3" at the bottom)
+	if layout_string(L, 0x17) == "Defeated Monster List" and u16(a + 0x12) == 0xFA02 then
+		local names = {}
+		for i = 0, count - 1 do
+			local b = W + 0x30 * i
+			if u16(b + 0x12) == 0xFA02 and u16(b + 0x0E) == 0 and u16(b + 0x0A) > 0 then names[#names + 1] = { i = i, x = u16(b + 6), y = u16(b + 8) } end
+		end
+		table.sort(names, function(p, q) if math.abs(p.y - q.y) > 3 then return p.y < q.y end return p.x < q.x end)
+		local at = 0
+		for k, nb in ipairs(names) do if nb.i == sel then at = k end end
+		local pg, pgs = nil, nil
+		for i = 0, count - 1 do
+			local b = W + 0x30 * i
+			if u16(b + 0x12) == 0xF803 and u16(b + 8) > 110 then
+				if not pg then pg = u32(b) else pgs = u32(b) end
+			end
+		end
+		if at > 0 then
+			line = (text:match("^%?%?%?+$") and "not found yet" or text) .. ", " .. at .. " of " .. #names
+			if pg and pgs and pgs > 1 then line = line .. ", page " .. pg .. " of " .. pgs end
+		end
+	end
+	-- its View By Family: three columns of families, read across, with how many of that family
+	-- you have defeated (the number beside "... Family Monsters Defeated:")
+	if layout_string(L, 0x17) == "Defeated Monster List" and text:match(" Family$") then
+		local fams = {}
+		for i = 0, count - 1 do
+			local b = W + 0x30 * i
+			local t = layout_box(L, W, i)
+			-- (not the tab over a family's list or "View By Family" at the top: those sit higher)
+			if t and t:match(" Family$") and u16(b + 0x12) == u16(a + 0x12) and u16(b + 8) > 5 and t ~= "View By Family" then fams[#fams + 1] = { i = i, x = u16(b + 6), y = u16(b + 8) } end
+		end
+		table.sort(fams, function(p, q) if math.abs(p.y - q.y) > 3 then return p.y < q.y end return p.x < q.x end)
+		local at = 0
+		for k, f in ipairs(fams) do if f.i == sel then at = k end end
+		local got = nil
+		for i = 0, math.min(count - 1, 12) do
+			local b = W + 0x30 * i
+			if u16(b + 0x12) == 0xFA03 and u16(b + 8) == 13 then got = u32(b) end
+		end
+		if at > 0 then line = text .. (got and (", " .. got .. " defeated") or "") .. ", " .. at .. " of " .. #fams end
+	end
 	if compare then line = line .. ". " .. (compare:gsub("^%l", string.upper)) end
 	-- (two entries can read the same, "not found yet" in both columns of the monster list: the
 	-- box the cursor is on tells them apart)
@@ -5421,6 +5491,104 @@ local function read_layout()
 	if frame - last_dialogue_frame < 5 then queue(line) else say(line, true) end
 	local dsc = item_desc_of(text)
 	if dsc then queue(dsc) end
+	-- the Defeated Monster List: the monster's page on the other screen comes after its name
+	if layout_string(L, 0x17) == "Defeated Monster List" and text ~= "not found yet" then
+		MON_DETAIL = { name = text, until_frame = frame + 90 }
+	end
+end
+
+-- A monster's page in the Defeated Monster List (the other screen) is a run of small boxes of
+-- 0x14 bytes: an id (+4), the kind (+6: 0xFA01 words, 0xF802 a number), x, y, and the value or
+-- the words (+0x10). 0x15 the name, 0x16 the family, 0x17 experience, 0x18 gold, 0x19 how many
+-- defeated, 0x1C how many of the first item dropped, 0x20 and 0x21 where it lives. The names of
+-- the items and the description sit in a block that points 0x84 bytes past itself.
+mon_page = { boxes = nil }
+function mon_page_boxes()
+	local function ok(b)
+		return inram(b, 0x14 * 20) and u16(b + 4) == 0x15 and u16(b + 6) == 0xFA01 and u16(b + 0x18) == 0x16 and u16(b + 0x2C) == 0x17 and u16(b + 0x2E) == 0xF802
+	end
+	if mon_page.boxes and ok(mon_page.boxes) then return mon_page.boxes end
+	mon_page.boxes = nil
+	if not mainmemory.read_string then return nil end
+	local from, len = 0x02380000, 0x60000
+	local raw = mainmemory.read_string(from - BASE, len)
+	local i = 1
+	while true do
+		local j = raw:find("\x15\x00\x01\xFA", i, true)
+		if not j then break end
+		local b = from + j - 1 - 4
+		if ok(b) then mon_page.boxes = b return b end
+		i = j + 1
+	end
+	return nil
+end
+function mon_page_box(b, id)
+	for k = -2, 22 do
+		local a = b + k * 0x14
+		if u16(a + 4) == id then return a end
+	end
+	return nil
+end
+function mon_page_text()
+	local b = mon_page_boxes()
+	if not b then return nil end
+	local function num(id) local a = mon_page_box(b, id) return a and u32(a + 0x10) or nil end
+	local function str(id)
+		local a = mon_page_box(b, id)
+		local p = a and u32(a + 0x10)
+		if p and inram(p, 1) then local t = clean(cstring(p, 60)) return t ~= "" and t or nil end
+		return nil
+	end
+	local name = str(0x15)
+	if not name then return nil end
+	local parts = {}
+	local fam = str(0x16)
+	if fam then parts[#parts + 1] = fam end
+	local e, g, d = num(0x17), num(0x18), num(0x19)
+	if e then parts[#parts + 1] = "experience " .. e end
+	if g then parts[#parts + 1] = "gold " .. g end
+	if d then parts[#parts + 1] = "defeated " .. d end
+	-- the block with the item names and the description
+	local item, desc
+	if find_selfptr then
+		for _, x in ipairs(find_selfptr(0x02380000, 0x40000, 0x84, 64)) do
+			local dp = u32(x + 0x0C)
+			if inram(dp, 4) then
+				local t = clean(cstring(dp, 300))
+				if #t > 20 and t:match("%a%a%a") then
+					local ip = u32(x + 4)
+					if inram(ip, 1) then item = clean(cstring(ip, 40)) end
+					desc = t
+					break
+				end
+			end
+		end
+	end
+	if item and item ~= "" then parts[#parts + 1] = "drops " .. item .. " " .. (num(0x1C) or 0) end
+	-- where it lives: the names are packed one after another, so a second one that does not
+	-- follow straight on from the first is left over from another monster
+	local h1a, h2a = mon_page_box(b, 0x20), mon_page_box(b, 0x21)
+	local h1 = str(0x20)
+	if h1 then
+		local haunt = "found in " .. h1
+		local p1, p2 = h1a and u32(h1a + 0x10), h2a and u32(h2a + 0x10)
+		local h2 = str(0x21)
+		if h2 and p1 and p2 == p1 + #cstring(p1, 60) + 1 then haunt = haunt .. " and " .. h2 end
+		parts[#parts + 1] = haunt
+	end
+	local line = table.concat(parts, ", ") .. "."
+	if desc then line = line .. " " .. desc end
+	return name, line
+end
+function watch_mon_page()
+	if not MON_DETAIL then return end
+	if frame > MON_DETAIL.until_frame then MON_DETAIL = nil return end
+	if frame % 4 ~= 0 then return end
+	local ok, name, line = pcall(mon_page_text)
+	if ok and name and name:lower() == MON_DETAIL.name:lower() then
+		MON_DETAIL = nil
+		queue(line)
+	end
 end
 
 
@@ -5431,6 +5599,7 @@ end
 -- A text box has its text at +0x20, or the number of a string in the screen's string table at
 -- +0x38. The screen's string table is pointed to from 0x02108DC0.
 UI_LIST_FN, UI_TEXT_FN, UI_STRINGS = 0x021FE80C, 0x021FE708, 0x02108DC0
+UI_NUM_FN = 0x021FF078      -- a number box: its value at +0x2C
 ui = { lists = {}, texts = {}, table = nil, focus = nil, said = {}, checked = -1000 }
 ui_cache, ui_cache_table = {}, nil
 function ui_string(sid)
@@ -5490,6 +5659,12 @@ function ui_scan()
 		end
 	end
 	end
+	-- (a list left over from the last screen has had its links and count cleared)
+	local live = {}
+	for _, o in ipairs(ui.lists) do
+		if u16(o + 0x24) > 0 and (u32(o + 0x14) ~= 0 or u32(o + 0x18) ~= 0) then live[#live + 1] = o end
+	end
+	ui.lists = live
 	if #ui.lists == 0 then return end
 	-- walk back along the chain from the first list to its first box
 	local e, guard = ui.lists[1], 0
@@ -5561,6 +5736,7 @@ function read_ui_screen()
 	local hf = ui.head and u32(ui.head) or 0
 	local valid = hf >= 0x021F0000 and hf < 0x02200000
 	if tbl ~= ui.table or (ui.head and not valid) then
+		if tbl ~= ui.table then ui.table_frame = frame end
 		ui.table = tbl
 		ui.said, ui.head = {}, nil
 		ui.co = coroutine.create(ui_scan)
@@ -5568,8 +5744,10 @@ function read_ui_screen()
 	end
 	if not ui.head then
 		-- nothing found the last time it looked (the screen was not built yet): a message that
-		-- ends in a list of choices is a reason to look again
-		if UI_SAID_RESET and frame - UI_SAID_RESET < 300 and frame - (ui.scan_frame or -1000) > 45 then
+		-- ends in a list of choices is a reason to look again, and so is a new screen's strings
+		-- having just come in (Battle Records' Wardrobe builds its list a moment after)
+		if ((UI_SAID_RESET and frame - UI_SAID_RESET < 300) or frame - (ui.table_frame or -1000) < 600)
+			and frame - (ui.scan_frame or -1000) > 45 then
 			ui.scan_frame = frame
 			ui.co = coroutine.create(ui_scan)
 		end
@@ -5577,14 +5755,39 @@ function read_ui_screen()
 	end
 	-- boxes and lists come and go as the screen changes: walk the chain every time
 	ui.lists, ui.texts = {}, {}
+	local order, nums = {}, {}
 	local e, guard = ui.head, 0
 	while inram(e, 0x40) and guard < 400 do
 		local f = u32(e)
-		if f == UI_TEXT_FN then ui.texts[u16(e + 6)] = e
-		elseif f == UI_LIST_FN then ui.lists[#ui.lists + 1] = e end
+		if f == UI_TEXT_FN then ui.texts[u16(e + 6)] = e order[#order + 1] = e
+		elseif f == UI_LIST_FN then ui.lists[#ui.lists + 1] = e
+		elseif f == UI_NUM_FN then nums[#nums + 1] = u32(e + 0x2C) end
 		e, guard = u32(e + 0x18), guard + 1
 	end
+	-- nothing to read in it any more (the screen was closed and its boxes cleared): look again
+	local usable = false
+	for _, o in ipairs(ui.lists) do if u16(o + 0x24) > 0 then usable = true break end end
+	if not usable then ui.lists = {} end
 	if #ui.lists == 0 then ui.head = nil return end
+	-- the words at the top of a new screen ("Wardrobe Completion:" 2 %, "Number Collected:"
+	-- 19): the boxes no list moves over, each "...:" taking the next number box's value
+	if ui.header_for ~= ui.head then
+		ui.header_for = ui.head
+		local inlist = {}
+		for _, o in ipairs(ui.lists) do
+			local n, arr = u16(o + 0x24) * math.max(1, u16(o + 0x26)), u32(o + 0x20)
+			if n > 0 and n <= 200 and inram(arr, n * 2) then for k = 0, n - 1 do inlist[u16(arr + k * 2)] = true end end
+		end
+		local parts, ni = {}, 1
+		for _, t in ipairs(order) do
+			local w = not inlist[u16(t + 6)] and ui_text(t)
+			if w and w:match(":$") and nums[ni] and #parts < 2 then
+				parts[#parts + 1] = w .. " " .. nums[ni] .. (w:find("Completion", 1, true) and " percent" or "")
+				ni = ni + 1
+			end
+		end
+		ui.header = #parts > 0 and table.concat(parts, ". ") or nil
+	end
 	-- a list that has just come back (the other page of the monster list) is news again
 	local now_in = {}
 	for _, o in ipairs(ui.lists) do
@@ -5615,7 +5818,13 @@ function read_ui_screen()
 	if pick and (not focus or u16(pick + 6) == focus) then
 		ui.spoke_frame = frame
 		local line = ui.said[pick]
+		if ui.header then line = ui.header .. ". " .. line ui.header = nil end
+		-- an item in the Wardrobe or the Item List: its description after it
+		local nm = line:match("([^%.,]+), row %d+") or line:match("([^%.,]+), %d+ of %d+$")
+		local dsc = nm and item_desc_of((nm:gsub("^%s+", "")))
+		if dsc then UI_DESC = dsc end
 		if frame - last_dialogue_frame < 5 then queue(line) else say(line, true) end
+		if UI_DESC then queue(UI_DESC) UI_DESC = nil end
 	end
 end
 
@@ -5633,8 +5842,12 @@ function read_records_menu(pad)
 		rec.until_frame, rec.addr, rec.last, rec.active = frame + 400, nil, nil, true
 	end
 	rec.pad_a = pad.a
+	-- the play time on show (only on this screen) also says you are in it (the mod may have been
+	-- restarted inside, missing the A press)
+	local clock = menu_raw_seen:match("^<PLTT=%d+><Y=%d+><XR=%d+>%d+</XR><X=%d+>:<XR=%d+>%d+</XR>$")
+	if clock then rec.active, rec.until_frame = true, math.max(rec.until_frame, frame + 60) end
 	-- still inside Battle Records (its lists) until the menu closes or the main menu is back
-	if rec.active and (u8(0x02109DA4) == 1 or (last_menu_item ~= "Battle Records" and menu_raw_seen:find("<N=4>Battle Records</N>", 1, true))) then rec.active = false end
+	if rec.active and not clock and (u8(0x02109DA4) == 1 or (last_menu_item ~= "Battle Records" and menu_raw_seen:find("<N=4>Battle Records</N>", 1, true))) then rec.active = false end
 	if rec.active and frame > rec.until_frame then rec.until_frame = frame + 60 end
 	if rec.addr and not rec_valid(rec.addr) then rec.addr, rec.last = nil, nil end
 	if not rec.addr then
@@ -5649,12 +5862,28 @@ function read_records_menu(pad)
 	local m = rec.addr
 	-- one of the lists inside (the item list ...) is open: say the button again when you come back
 	if ui.head and frame - (ui.spoke_frame or -1000) < 120 then rec.last = nil return end
+	-- (how many: +8 in some builds of the block, +0x0C in others, where +8 is a pointer)
 	local n, cur = u32(m + 8), u32(m + 0x28)
+	if n == 0 or n > 8 then n = u32(m + 0x0C) end
 	if n == 0 or n > 8 or cur >= n then return end
 	local label = REC_LABELS[u8(m + cur)] or ("option " .. (cur + 1))
 	local line = label .. ", " .. (cur + 1) .. " of " .. n
 	if line ~= rec.last then
-		rec.last = line
+		-- coming in: the time played (the clock on show) and how complete the lists are (the
+		-- page's <val_1>% <val_2>% <val_3>% numbers)
+		if rec.summary_for ~= m then
+			rec.summary_for = m
+			local parts = {}
+			local h, mi = menu_raw_seen:match("^<PLTT=%d+><Y=%d+><XR=%d+>(%d+)</XR><X=%d+>:<XR=%d+>(%d+)</XR>$")
+			if h then parts[#parts + 1] = "Time played " .. tonumber(h) .. " hours " .. tonumber(mi) .. " minutes" end
+			local v1, v2, v3 = u32(MSG_VALS + 4), u32(MSG_VALS + 8), u32(MSG_VALS + 12)
+			if v1 <= 100 and v2 <= 100 and v3 <= 100 then
+				parts[#parts + 1] = "Defeated Monster List " .. v1 .. " percent, Wardrobe " .. v2 .. " percent, Item List " .. v3 .. " percent complete"
+			end
+			if #parts > 0 then line = "Battle Records. " .. table.concat(parts, ". ") .. ". " .. line end
+		end
+		rec.last = label .. ", " .. (cur + 1) .. " of " .. n
+		rec.spoke_frame = frame
 		if frame - last_dialogue_frame < 5 then queue(line) else say(line, true) end
 	end
 end
@@ -7104,6 +7333,7 @@ while true do
 		PT("read_title") read_title()
 		PT("read_equip_screen") read_equip_screen()
 		PT("read_layout") read_layout()
+		PT("watch_mon_page") watch_mon_page()
 		PT("read_ui_screen") read_ui_screen()
 		PT("read_records_menu") read_records_menu(pad)
 		PT("read_choice") read_choice()
