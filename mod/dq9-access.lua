@@ -48,7 +48,7 @@
 -- Anything read from memory is checked before it is spoken; a check that fails stays silent.
 
 ------------------------------------------------------------------------------ settings ------
-MOD_VERSION = "0.52"
+MOD_VERSION = "0.53"
 MENU_DEBUG = false   -- true: log the menu buffer and look for the yes/no box in snapshots
 WALK_DEBUG = false   -- true: log auto walk's route and position (in the speech log)
 KEYS = {
@@ -192,14 +192,27 @@ end
 -- DLG_SPOKEN_FRAME: when a message was last read; USER_INPUT_FRAME: when you last pressed a
 -- button or key. Something that comes up on its own after a message (the options, a yes or no,
 -- a window) waits for the message to finish instead of cutting it off.
-DLG_SPOKEN_FRAME, USER_INPUT_FRAME = -1000, -1000
+DLG_SPOKEN_FRAME, USER_INPUT_FRAME, LAST_SAY_FRAME, SKILL_UI_FRAME = -1000, -1000, -1000, -1000
 local function say(text, interrupt)
 	if not text or text == "" then return end
+	-- (the same words twice in a moment with no button pressed in between: a question read from
+	-- the message box and again from its window, as at Porth Llaffan's church)
+	if text == LAST_SAY_TEXT and frame - LAST_SAY_FRAME < 90 and USER_INPUT_FRAME < LAST_SAY_FRAME then return end
+	LAST_SAY_TEXT = text
+	LAST_SAY_FRAME = frame
+	-- (a level up's skill points screen: an auto walk must not start again over it, as its
+	-- presses would move the points about)
+	if text:find("skill point", 1, true) then SKILL_UI_FRAME = frame end
 	if interrupt ~= false and frame - DLG_SPOKEN_FRAME < 600 and USER_INPUT_FRAME < DLG_SPOKEN_FRAME then interrupt = false end
 	-- something that came up in the same moment and was waiting its turn (the sample of a
 	-- speech style) is said again after this rather than cut off
+	-- (both came up by themselves, with no button pressed in between: the question in the
+	-- message box and the list under it. Say this one after it instead of cutting it off and
+	-- saying it again. After a button press the new line cuts in as usual.)
 	local requeue = nil
-	if interrupt ~= false and say_queued_text and say_queued_text ~= text and frame - say_queued_frame <= 30 then requeue = say_queued_text end
+	if interrupt ~= false and say_queued_text and say_queued_text ~= text and frame - say_queued_frame <= 30 then
+		if USER_INPUT_FRAME < say_queued_frame then interrupt = false end
+	end
 	-- the same line waiting its turn twice in a moment (said again after being cut off, then
 	-- asked for again) is said once
 	if interrupt == false and text == say_last_queued and frame - (say_last_queued_frame or -1000) < 60 then return end
@@ -308,9 +321,11 @@ end
 function mon_label_list(items, m)
 	if not in_battle() or not m:find("<x>", 1, true) then return end
 	local groups = {}
-	for i = 0, 15 do
+	local keys = {}
+	for k in pairs(items) do if type(k) == "number" and k >= 0 and k < 16 then keys[#keys + 1] = k end end
+	table.sort(keys)
+	for _, i in ipairs(keys) do
 		local it = items[i]
-		if not it then break end
 		local name, n = it.text:match("^(.-)%s+times%s+(%d+)$")
 		if not name then return end                                -- not a list of monsters
 		groups[#groups + 1] = { it = it, name = name, kind = name:lower(), n = tonumber(n) }
@@ -706,14 +721,22 @@ function battle_member_hp(name)
 	return nil
 end
 
-local function describe_item(it, cursor, count)
+-- (a list can number its lines with gaps: a battle's target list with a group gone, "3 of 2".
+-- The place is counted among the lines there are.)
+function item_rank(items, cursor)
+	if not items then return cursor + 1 end
+	local r = 1
+	for k in pairs(items) do if type(k) == "number" and k < cursor then r = r + 1 end end
+	return r
+end
+local function describe_item(it, cursor, count, items)
 	local s = it.text ~= "" and it.text or "blank"
 	local cost = spell_cost_of(it.text)
 	if cost then s = s .. ", " .. cost end
 	local hp = battle_member_hp(it.text)
 	if hp then s = (s:gsub("^%l", string.upper)) .. ", " .. hp end
 	if it.disabled then s = s .. ", unavailable" end
-	if SAY_POSITION_IN_MENUS and count > 1 then s = s .. ", " .. (cursor + 1) .. " of " .. count end
+	if SAY_POSITION_IN_MENUS and count > 1 then s = s .. ", " .. item_rank(items, cursor) .. " of " .. count end
 	return s
 end
 
@@ -862,7 +885,10 @@ local function read_menu()
 		-- (gone from the screen meanwhile: the last spell's, as the cursor moved on)
 		local current = pm == nil or menu_raw_seen == pm or frame - (menu_hist[pm] or -1000) <= 6
 		local recent = RECENT_DSC and RECENT_DSC[t] and frame - RECENT_DSC[t] < 900
-		if t ~= last_said and current and not recent then queue(t) end
+		-- (the last item's description, still in its box as the cursor moves down a list)
+		local stale = LAYOUT_MOVE and ((t == LAYOUT_MOVE.prev and frame - LAYOUT_MOVE.at < 40)
+			or (LAYOUT_MOVE.desc and ITEM_DESC_SET and ITEM_DESC_SET[t] and t ~= LAYOUT_MOVE.desc and frame - LAYOUT_MOVE.at < 300))
+		if t ~= last_said and current and not recent and not stale then queue(t) LAST_PLAIN_T = t end
 	end
 	local head = menu_fingerprint()
 	if head == menu_head and menu_seen_count > 1 then return end
@@ -932,7 +958,12 @@ local function read_menu()
 			end
 			local skip = (ITEM_DESC_SET[t] and frame - (last_dsc_frame or -1000) < 120) or (MS and (MS.on_item or MS.open))
 				or (RECENT_DSC and RECENT_DSC[t] and frame - RECENT_DSC[t] < 900)
-			if not skip and #t > 12 and t:match("%a%a%a") and t:match("[%.!%?]$") and t ~= plain_said and t ~= dlg_last_text and t ~= last_said
+			-- (the question just asked in the message box, put in this window too: "So, you want to
+			-- pop all the necessary ingredients into the pot...?" with the Yes / No beside it)
+			local function squash(x) return (x or ""):gsub("%s+", " "):gsub("^%s", ""):gsub("%s$", "") end
+			local tq = squash(t)
+			local said_in_box = tq ~= "" and (squash(dlg_last_text):find(tq, 1, true) or squash(last_said):find(tq, 1, true))
+			if not skip and not said_in_box and #t > 12 and t:match("%a%a%a") and t:match("[%.!%?]$") and t ~= plain_said and t ~= dlg_last_text and t ~= last_said
 				and not is_layout_label(t) then
 				plain_said = t
 				-- the experience window filling in after its first line came with the title
@@ -1011,8 +1042,40 @@ local function read_menu()
 		end
 		battle_menu_said[sig .. cursor] = true
 	end
+	-- The Items menu draws the picked person's items beside the list of people, in turn with
+	-- it: that list is not where you are ("Angel bell, 8 of 8" after "retro, 1 of 6"). Until a
+	-- button is pressed, leave it be.
+	if not same_menu and not title and menu_title == "Everyday Items" and not in_battle()
+		and frame - last_menu_spoken < 30 and last_button_frame <= last_menu_spoken then
+		return
+	end
+	-- giving something to someone: how many things they already carry (8 is full)
+	if not same_menu then
+		transfer_mode = title == "To who?" and (last_menu_item == "Transfer" or (transfer_mode and menu_title == "To who?")) or nil
+	end
 	menu_sig, menu_cursor, menu_items, menu_title = sig, cursor, items, title
-	local text = describe_item(it, cursor, count)
+	local text = describe_item(it, cursor, count, items)
+	-- the bag's pages: which page of how many, when that changes (the game shows "2/3")
+	do
+		local ok, pg, pgs = pcall(bag_page, items)
+		if ok and pg and pgs > 1 then
+			if pg ~= last_bag_pg or not same_menu then text = text .. ", page " .. pg .. " of " .. pgs end
+			last_bag_pg = pg
+		elseif ok then last_bag_pg = nil end
+	end
+	if transfer_mode and title == "To who?" or (transfer_mode and same_menu) then
+		for _, r in ipairs(party_records()) do
+			if r.name == it.text then
+				local n = 0
+				for k = 0, 7 do
+					local v = u16(r.addr + 0x418 + k * 2)
+					if v == 0xFFFF or v == 0 then break end
+					n = n + 1
+				end
+				text = text .. (n >= 8 and ", hands full" or (", carrying " .. n .. " of 8"))
+			end
+		end
+	end
 	-- the list of commands: say whose turn it is when that changes
 	if in_battle() and items[0] and items[0].text == "Attack" then
 		local who = battle_actor_name()
@@ -1051,6 +1114,13 @@ local function read_menu()
 			and prev_count and frame - (last_menu_spoken_prev or -1000) < 600 then
 			text = (last_button_name == "right" and "Next page. " or "Previous page. ") .. text
 		end
+		-- (windows closing one after another after an item is used flick back through menus
+		-- already read: "To who? lebon", "Everyday Items. retro", "To who? lebon" again. With no
+		-- button pressed, a menu read in the last few seconds is not read again.)
+		MENU_RECENT = MENU_RECENT or {}
+		local seen = MENU_RECENT[text]
+		MENU_RECENT[text] = frame
+		if seen and frame - seen < 240 and USER_INPUT_FRAME < (last_menu_spoken_prev or -1000) then return end
 		-- A menu that opens together with a question waits for the question to be read.
 		if frame - last_dialogue_frame < 150 then queue(text) else say(text, true) end
 		if dsc then queue(dsc) end
@@ -2207,6 +2277,101 @@ function item_desc_of(text)
 	local d = id and ITEM_DESC[id]
 	return d and clean_text_g(d) or nil
 end
+-- Alchemy. The recipe book lives in memory as entries of 0x20 bytes, each pointing at itself
+-- plus 4: +4 its number, +6 the item it makes, +8 / +10 / +12 up to three ingredients, +14 how
+-- many of each (a nibble each, the first in the lowest).
+RECIPE_CACHE = { at = -100000, by = {} }
+function recipe_of(id)
+	if frame - RECIPE_CACHE.at > 600 or not next(RECIPE_CACHE.by) then
+		RECIPE_CACHE.at, RECIPE_CACHE.by = frame, {}
+		for _, a in ipairs(find_selfptr(0x02380000, 0x40000, 4, 4000)) do
+			local res = u16(a + 6)
+			if res >= 1000 and res < 40000 and u16(a + 0x1C) == ((u16(a + 4) + 1) & 0xFFFF) then
+				local ings, cnt = {}, u16(a + 14)
+				for k = 0, 2 do
+					local ing = u16(a + 8 + k * 2)
+					local n = (cnt >> (k * 4)) & 0xF
+					if ing ~= 0 and ing ~= 0xFFFF and n > 0 then ings[#ings + 1] = { id = ing, n = n } end
+				end
+				if #ings > 0 then RECIPE_CACHE.by[res] = ings end
+			end
+		end
+	end
+	return RECIPE_CACHE.by[id]
+end
+-- the bag: a header in the save data with the item numbers (2 bytes each) and how many of each
+-- (a byte each): +0 points at the numbers (+0x0C), +4 at the counts, +8 is the room (152)
+BAG_HEAD = 0x020F5DDC
+function bag_head()
+	local h = BAG_HEAD
+	if u32(h) == h + 0x0C and u32(h + 4) == h + 0x0C + 2 * u32(h + 8) and u32(h + 8) > 0 and u32(h + 8) < 400 then return h end
+	for _, a in ipairs(find_selfptr(0x020E0000, 0x40000, 0x0C, 64)) do
+		local n = u32(a + 8)
+		if n > 0 and n < 400 and u32(a + 4) == a + 0x0C + 2 * n then BAG_HEAD = a return a end
+	end
+	return nil
+end
+-- Which page of the bag a list on screen is: its first line is the bag's 1st, 9th, 17th... thing
+function bag_page(items)
+	if not items or not items[0] or not items[0].text then return nil end
+	local h = bag_head()
+	if not h then return nil end
+	local ids, n = u32(h), u32(h + 8)
+	-- (a bag list has how many of each beside it: "Manky mud, 2")
+	local name0 = items[0].text:match("^(.-), %d+$")
+	if not name0 then return nil end
+	local first, total = name0:lower(), 0
+	local at = nil
+	for k = 0, n - 1 do
+		local v = u16(ids + k * 2)
+		if v == 0xFFFF then break end
+		total = total + 1
+		if not at and k % 8 == 0 and ITEM_NAMES[v] and ITEM_NAMES[v]:lower() == first then at = k end
+	end
+	if not at then return nil end
+	return at // 8 + 1, (total + 7) // 8
+end
+function bag_count(id)
+	local h = bag_head()
+	if not h then return nil end
+	local ids, cnts, n = u32(h), u32(h + 4), u32(h + 8)
+	for k = 0, n - 1 do
+		local v = u16(ids + k * 2)
+		if v == 0xFFFF then break end
+		if v == id then return u8(cnts + k) end
+	end
+	return 0
+end
+-- what the party carry: each of the four party records has 8 item slots (2 bytes each) at +0x418
+function party_count(id)
+	local n = 0
+	for r = 0, 3 do
+		local base = REC0 + r * 0x964 + 0x418
+		for k = 0, 7 do
+			local v = u16(base + k * 2)
+			if v == 0xFFFF then break end
+			if v == id then n = n + 1 end
+		end
+	end
+	return n
+end
+-- "Needs 2 strong medicine, you have 0": what a recipe takes, and how many of each you have,
+-- carried by the party and in the bag, as the recipe book shows
+function recipe_text(name)
+	if not ITEM_ID_BY_NAME then item_desc_of("x") end
+	local id = ITEM_ID_BY_NAME and ITEM_ID_BY_NAME[(name or ""):lower()]
+	local ings = id and recipe_of(id)
+	if not ings then return nil end
+	local parts, ready = {}, true
+	for _, g in ipairs(ings) do
+		local nm = ITEM_NAMES[g.id] or ("item " .. g.id)
+		local bag = bag_count(g.id)
+		local have = (bag or 0) + party_count(g.id)
+		if have < g.n then ready = false end
+		parts[#parts + 1] = g.n .. " " .. nm .. ", you have " .. have
+	end
+	return "Needs " .. table.concat(parts, "; ") .. (ready and ". You can make it." or ".")
+end
 -- story event spots: map number -> { first chapter, step, last chapter, step, box x1, z1, x2, z2, event }
 EVENT_SPOTS = {
 	[200] = { {11,2,11,2,-7.19,-35.95,-23.97,-45.34,302} },
@@ -2299,6 +2464,36 @@ EXIT_NAMES_AT = {
 	["X01M01|4103"] = "Stairs to tree 1",      -- Observatory level 1-2 outside: the stairs up to level 3 (Exterior 3)
 	["X01M02|4104"] = "Stairs to tree 2",      -- Observatory level 3 outside (map X01M02): the stairs up to Exterior 4
 }
+-- names for exits told apart by where they are, for maps with several exits that the game's
+-- names cannot tell apart ("exit outside" three times on Tywll Cave's 2nd floor):
+-- map code (first 6 letters) -> { x, z, name }, the nearest within 3 steps
+EXIT_NAMES_XY = {
+	D06M01 = { { -4.0, -6.7, "cave mouth under the ledge, into the 1st floor" },
+	           { -21.0, -11.8, "stairs down to the cave mouth, into the 1st floor" },
+	           { -22.6, -15.7, "west cave mouth on the ledge, to the 2nd floor and on to Lleviathan" },
+	           { -3.3, -15.6, "east cave mouth on the ledge, to a side part of the 2nd floor" } },
+	D06M02 = { { 14.6, 27.3, "exit outside, under the ledge" },
+	           { -2.5, 31.4, "exit outside, to the steps up from the shore" },
+	           { -1.8, -17.4, "opening into a side cave, north" },
+	           { -10.1, -24.0, "opening up the stairs into a side cave, north west" } },
+	D06M03 = { { 3.2, 17.9, "exit back to the 1st floor" }, { -6.7, 16.4, "exit back to the 1st floor" } },
+	D06M04 = { { 19.2, 24.0, "exit outside, to the east end of the ledge" },
+	           { -7.2, 29.0, "exit outside, to the west end of the ledge" },
+	           { 22.1, -11.4, "stairs down to the far side of the cave, the way on" } },
+	D06M05 = { { 11.7, 32.7, "exit back into the 2nd floor" },
+	           { 5.5, -24.3, "stairs up to Cuddiedig Cliff, where Lleviathan is" } },
+}
+function exit_name_xy(x, z)
+	local here = map_code()
+	local list = here and EXIT_NAMES_XY[here:sub(1, 6)]
+	if not list then return nil end
+	local best, bd = nil, 9
+	for _, e in ipairs(list) do
+		local d = (e[1] - x) ^ 2 + (e[2] - z) ^ 2
+		if d < bd then best, bd = e[3], d end
+	end
+	return best
+end
 function exit_name_here(id)
 	local here = map_code()
 	return here and EXIT_NAMES_AT[here:sub(1, 6) .. "|" .. id]
@@ -2340,6 +2535,13 @@ local function door_name(id, kind)
 		-- the game's part names ("Exterior", "Interior - Lv 1") mean nothing on their own:
 		-- in another area say the area ("exit to Mountain Pass"), in this one say "outside"
 		local room = name and name:match("^Interior.- %- (.+)$")
+		-- (a floor in parts, Tywll Cave's "Lv 1-01" and "Lv 1-02": which floor, which part)
+		local fl, part = nil, nil
+		if room then fl, part = room:match("^Lv (%d+)%-0?(%d+)$") end
+		if fl then
+			local ord = ({ "1st", "2nd", "3rd" })[tonumber(fl)] or (fl .. "th")
+			return "exit to the " .. ord .. " floor" .. (tonumber(part) > 1 and (", part " .. part) or "")
+		end
 		if room then
 			local l = room_door_label(room):gsub(" door$", "")
 			if l ~= "door" then return "exit to " .. (l:gsub("^upstairs$", "upstairs")) end
@@ -2353,6 +2555,8 @@ local function door_name(id, kind)
 		if name and m and (name:match("^Exterior") or name:match("^Interior") or name:match("^Lv %d")) then
 			if here and m[1]:sub(1, 3) == here:sub(1, 3) then
 				if name:match("^Exterior") then return "exit outside" end
+				-- (the Quarantomb's shrine to "Interior -": the way in)
+				if name:match("^Interior") then return "exit inside, to " .. (AREAS[m[1]:sub(1, 3)] or "the next room") end
 			elseif AREAS[m[1]:sub(1, 3)] then
 				name = AREAS[m[1]:sub(1, 3)]
 			end
@@ -2432,6 +2636,7 @@ function doors_raw()
 			if (x1 - x0) < (z1 - z0) then nx, nz = 1, 0 end
 			local label = door_name(u16(S + 0x1C), kind)
 			local cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
+			if kind == 0 then label = exit_name_xy(cx, cz) or label end
 			local has, gx, gz = door_gimmick_near(cx, cz)
 			if label == "door" and not has then
 				label = "entrance"      -- a way in with no door, such as a well or a trapdoor
@@ -2468,7 +2673,12 @@ local function load_places()
 	for line in f:lines() do
 		local code, kind, x, z, label = line:match("^([^|]+)|([^|]+)|([^|]+)|([^|]+)|(.*)$")
 		if code and kind == "name" and tonumber(code) then learned[tonumber(code)] = label end
-		if code and kind == "npc" then people[code] = label end
+		if code and kind == "npc" then
+			-- (learned before the mod named these: the Quarantomb's statues)
+			local bx, by = label:match('^something that says "There appears to be an? ([%a%s]-) on the ([%a%s]-)"$')
+			if bx then label = (by == "wand" and "statue's wand" or by) .. " with a " .. bx end
+			people[code] = label
+		end
 		if code and kind == "searched" then searched_load[code] = true end
 		if code and kind == "eventdone" then events_done_load[code] = true end
 		if code and kind == "mark" and tonumber(x) and tonumber(z) then
@@ -2748,6 +2958,18 @@ function obj_label(o)
 	end
 	return best or first
 end
+-- the boss of where you are, from the story guide
+function boss_name()
+	local c = map_code()
+	if not c or not GUIDE then return nil end
+	local area = c:sub(1, 3)
+	for _, g in ipairs(GUIDE) do
+		if g.boss and g.areas then
+			for _, a in ipairs(g.areas) do if a == area then return g.boss end end
+		end
+	end
+	return nil
+end
 local function characters()
 	local list = {}
 	local n = u32(OBJ_COUNT)
@@ -2761,6 +2983,10 @@ local function characters()
 			-- story characters (models s001, s025 ...) are built differently: their position
 			-- is further into the object
 			local story = model:match("^s%d%d%d") ~= nil
+			-- a boss waiting to be talked to (b006a, the Ragin' Contagion) is built like a story
+			-- character
+			local boss = model:match("^b%d%d%d") ~= nil
+			if boss then story = true end
 			local x, z
 			if story then x, z = s32(o + 0x64) / 4096, s32(o + 0x6C) / 4096
 			else x, z = s32(o + 0x24) / 4096, s32(o + 0x2C) / 4096 end
@@ -2771,7 +2997,7 @@ local function characters()
 			if not far and not (px and math.abs(x - px) < 0.05 and math.abs(z - pz) < 0.05) then
 				-- people are drawn from a character sprite (n001a ...); signs, statues and the
 				-- like have none
-				local person = model:match("^%l%d%d%d") ~= nil
+				local person = model:match("^%l%d%d%d") ~= nil and not boss
 				local key = npc_key(o)
 				local label = key and people[key]
 				-- a person the game has a name for: that name, even before you talk to them
@@ -2798,7 +3024,9 @@ local function characters()
 				end
 				-- only names are kept for people; what they said is not part of the label
 				if person and label and label:find("^someone who says") then label = nil end
-				if story and label and label ~= gname then label = label .. ", story character" end
+				if boss then
+					label = (gname or boss_name() or "the boss") .. ", the boss"
+				elseif story and label and label ~= gname then label = label .. ", story character" end
 				label = label or look
 				if key and object_name(key) then label = object_name(key) end
 				-- some story models are things to pick up, not people (the lost ring in the grass)
@@ -2811,7 +3039,7 @@ local function characters()
 				-- signs and statues face one way (+0x34, 0x10000 to a turn; 0 faces +z): the side
 				-- they can be read from
 				list[#list + 1] = { label = label or (story and "story character" or person and "someone" or "something"),
-				                    x = x, z = z, obj = o, key = key, thing = not person, story = story, posoff = story and 0x64 or nil,
+				                    x = x, z = z, obj = o, key = key, thing = not person and not boss, boss = boss or nil, story = story, posoff = story and 0x64 or nil,
 				                    fy = s32(o + (story and 0x68 or 0x28)) / 4096,
 				                    rot = (not person and not story) and u16(o + 0x34) or nil }
 				end
@@ -3038,6 +3266,12 @@ on_new_message = function(text, full)
 		end
 		name = nil
 	end
+	-- "There appears to be a button on the wand." (the Quarantomb's sage statues): "statue's
+	-- wand with a button"
+	local bx, by = text:match("^There appears to be an? ([%a%s]-) on the ([%a%s]-)%.")
+	if not label and bx and by and #bx < 20 and #by < 20 then
+		label = (by == "wand" and "statue's wand" or by) .. " with a " .. bx
+	end
 	if label then
 		-- already worked out above
 	elseif name and #name <= 24 then
@@ -3198,6 +3432,7 @@ GUIDE = {
 	{ ch = { 3, 4 }, st = { 307, 399 }, areas = {}, text = "Go back to King Schott in Stornway castle for your reward: use a chimaera wing to fly to Stornway, or walk, out of Brigadoom to the south, through Doomingale Forest to the south east into the open field, past Zere and on south east to Stornway. The King opens the treasure room and says the checkpoint to the north east is open. At Stornway's inn, talk to Erinn to get the Krak Pot for alchemy. Then go through the Eastern Checkpoint, north east of Stornway, and on north to Coffinwell." },
 	{ ch = { 4, 4 }, areas = { "S03", "F05", "M03" }, text = "In Coffinwell, talk to the Mayor on the second floor of the big building in the north, then to Doctor Phlegming's wife in the house in the north west. Follow her to the door east of her house to find the doctor, then go back to the Mayor for the key to the Quarantomb." },
 	{ ch = { 4, 4 }, areas = { "F06", "D04" }, boss = "Ragin' Contagion", text = "Go to the Quarantomb, west of Coffinwell. On the first floor, touch the red statue and the blue statue in the north east and north west; that opens the door near the entrance. Go on to the middle room, where a broken jar starts a scene, and talk to the big pink monster to fight the boss, the Ragin' Contagion, who attacks twice a turn." },
+	{ ch = { 4, 4 }, st = { 404, 499 }, areas = { "M03", "F05", "S03" }, text = "The Ragin' Contagion is beaten, and Dr Phlegming stays behind in the Quarantomb. Go back to Coffinwell, east of the Quarantomb. Talk to the Mayor on the second floor of the big building in the north, then to Catarrhina, Dr Phlegming's wife, in their house. After the funeral at the graveyard, wait for night (or rest at the inn): get your reward from the Mayor, then visit the graveyard again. Then go to Dr Phlegming's laboratory, visit the sick people he asks about (the house east of his, the bunny girl at the inn, and the house in the east of town), and go back to him. After that, leave Coffinwell and head back to the Mountain Pass, past Angel Falls, where the Starflight Express is." },
 	{ ch = { 4, 5 }, areas = {}, text = "Back in Coffinwell, talk to the Mayor, Catarrhina, the Mayor again, rest at the inn, and the Mayor once more; then the ghost in the graveyard, Doctor Phlegming's laboratory door, the houses, and the inn. Then go to the Starflight Express in the Mountain Pass." },
 	{ ch = { 5, 6 }, areas = { "S14", "X05" }, text = "At the Observatory, pray at the great tree to learn Zoom, the spell to fly back to places you have been. Then talk to Stella on the Starflight Express; it takes you to Newid Isle." },
 	{ ch = { 5, 6 }, areas = { "F07", "X02" }, text = "On Newid Isle, go into Alltrades Abbey, north east of where you land. Talk to the priest on the north side of the first floor, then to the people at the bar downstairs, then back to the priest to learn the Bow party trick." },
@@ -3377,6 +3612,69 @@ end
 -- beaten (the story number moves past "before"). Door notes: what opens a locked door (by map
 -- number and door part number). The words are from walkthroughs of each dungeon.
 DUNGEON_GUIDE = {
+	-- Tywll Cave (D06): the shore and the high ledge outside, the 1st floor with two side caves,
+	-- the 2nd floor in two parts that do not join, the far side, then Cuddiedig Cliff (S05),
+	-- where Lleviathan is. The exits are named in EXIT_NAMES_XY.
+	D06 = { name = "Tywll Cave", before = 704,
+		M01 = function()
+			local _, py = player_pos()
+			if py and py > 5 then
+				return {
+					"You are on the high ledge above the cave mouths. The way on is the west cave mouth on the ledge, to the 2nd floor and on to Lleviathan, in the exits list.",
+					"Optional first: the east cave mouth on the ledge leads to a side part of the 2nd floor with a couple of chests, one of them a seed of agility. It does not lead on, so come back out the same way.",
+					"The cave mouth under the ledge is right below you and cannot be reached from up here. To get back down: the slope at the west end of the ledge goes down to the raised rocks, where the stairs down to the cave mouth, into the 1st floor, are.",
+				}
+			end
+			return {
+				"You are outside Tywll Cave, down by the shore. Optional: a red chest at the south east of the beach, and a blue chest to the west, past the cave mouths, in the items list.",
+				"The way in is the cave mouth at the west end, down some steps from the raised rocks: stairs down to the cave mouth, into the 1st floor, in the exits list.",
+				"You come back out of the 1st floor by the cave mouth under the ledge. From there, climb up onto the high ledge above it: west and up onto the raised rocks, then up the slope at the west end of the ledge. Up there, the west cave mouth on the ledge is the way on.",
+				"Auto walk does not always manage the steps between the shore, the raised rocks and the ledge. If it says As close as you can get, walk the last bit yourself, or try the beacon.",
+			}
+		end,
+		M02 = {
+			"The 1st floor: rocks to walk on in the water. From where you came in, go right, the east, then north over the rocks. On the next island, go west, then south, to a chest with iron kneecaps.",
+			"Then go north until there is an opening on your left: opening into a side cave, north, in the exits list. Inside, go north to a chest with ultramarine mittens, then come back out.",
+			"Go west and climb the stairs to the other opening: opening up the stairs into a side cave, north west. Inside is a chest with a mini medal. Come back out.",
+			"The way on: go back until you can go south over the rocks. On that island go east over the rocks, then south, to exit outside, under the ledge. Outside, climb up onto the high ledge and go in at the west cave mouth on the ledge.",
+		},
+		M03 = {
+			"A side cave off the 1st floor, with one chest: ultramarine mittens through the north opening, a mini medal through the north west one up the stairs. Open it, then go back out: exit back to the 1st floor in the exits list.",
+			"Back on the 1st floor, the way on is south over the rocks, then east and south to exit outside, under the ledge.",
+		},
+		-- (two parts that do not join: which one you are in is whether the way on can be reached)
+		M04 = function()
+			local n = nav_ready()
+			local px, py, pz = player_pos()
+			local on = nil
+			if n and px then
+				local ok, R = pcall(reach_region3, n, px, py, pz, {}, 60000)
+				if ok and R and R.cells then on = reach_near(R, 22.1, -11.4) < 2 end
+			end
+			if on == false then
+				return {
+					"You are in a side part of the 2nd floor; it does not lead on. Its chests, one of them a seed of agility, are in the items list.",
+					"When you are done, take exit outside, to the east end of the ledge, walk west along the ledge, and go in at the west cave mouth on the ledge.",
+				}
+			end
+			return {
+				"You are in the part of the 2nd floor that leads on. Follow the west edge of the room to a chest with a mini medal.",
+				"Go back, and where there are rocks to the north you can walk on, go north to the top, then east, to a chest with 1500 gold coins.",
+				"Then go back down the first rocks and head east: stairs down to the far side of the cave, the way on, in the exits list.",
+			}
+		end,
+		M05 = {
+			"The far side of the cave, outside. Optional: go north along the rocks, then west and south, to a chest with blue jeans. On the east side there is a pot to break.",
+			"Heal before going on. The way on is north: stairs up to Cuddiedig Cliff, where Lleviathan is, in the exits list.",
+		},
+	},
+	S05 = { name = "Cuddiedig Cliff", before = 704,
+		M01 = {
+			"Cuddiedig Cliff. Go to the north edge of the cliff and watch the scene; then check Lleviathan, the boss, to fight him.",
+			"Lleviathan attacks once a turn: a hit on one of you, or a swipe at the whole party. He has no weakness to any spell, so use your strongest. Keep everyone above about 40 HP and heal after each swipe.",
+			"Afterwards you get a Fygg. Back in Porth Llaffan, talk to Jona south of the church, then the man in blue on the boat by the item shop, and choose to sail. Next stop: Slurry Quay.",
+		},
+	},
 	D03 = { name = "Brigadoom", before = 306,
 		M01 = {
 			"You are in Brigadoom's ruins; you came in at the south. Optional: a chest with a trailblazing bandana, good for a healer, on top of the eastern tower. From down here it is the treasure chest in the items list that says higher up. To get to it, go in through the eastern tower door, then take the exit outside at the top of the stairs inside; that brings you out on top of the tower, next to the chest.",
@@ -3429,6 +3727,12 @@ function dungeon_guide()
 	if sub == "" then sub = "M01" end
 	local part = g[sub]
 	if g[sub .. "_open"] and code_unlocked_shortcut(g) then part, code = g[sub .. "_open"], code .. "open" end
+	-- (a part can depend on where in it you are: a function that says which steps)
+	if type(part) == "function" then
+		local ok, p2 = pcall(part)
+		part = ok and p2 or nil
+		if part then code = code .. "#" .. part[1]:sub(1, 20) end
+	end
 	if not part then return nil end
 	return part, g, code
 end
@@ -3742,10 +4046,52 @@ CATEGORIES = { "People", "Monsters", "Items", "Sparkly spots", "Doors", "Exits",
 -- these are always offered, even when there are none here, so you know they exist
 ALWAYS_SHOWN = { ["Monsters"] = true, ["Sparkly spots"] = true }
 local category = 1
+-- what is on the far side of a door you have just gone through, in the same map (the Quarantomb's
+-- gate: "Through door. In here: jar, stairs to basement.")
+function through_summary(door, px, pz, sx, sz)
+	if not door or not door.x then return nil end
+	-- the way through: the door's own facing, or else the way you came
+	local nx, nz = door.nx, door.nz
+	if not nx then
+		if not sx then return nil end
+		nx, nz = door.x - sx, door.z - sz
+		local l = math.sqrt(nx * nx + nz * nz)
+		if l < 0.5 then return nil end
+		nx, nz = nx / l, nz / l
+	end
+	local side = (px - door.x) * nx + (pz - door.z) * nz
+	if not door.nx then side = 1 end
+	if math.abs(side) < 0.05 then return nil end
+	local got = {}
+	for _, it in ipairs(build_nearby()) do
+		if it ~= door and it.x and it.z and not it.monster and it.label then
+			local s2 = (it.x - door.x) * nx + (it.z - door.z) * nz
+			local d2 = (it.x - px) ^ 2 + (it.z - pz) ^ 2
+			-- (ahead of the door, not off to one side in another room)
+			local lat = math.abs((it.x - door.x) * nz - (it.z - door.z) * nx)
+			if s2 * side > 0 and math.abs(s2) > 0.5 and math.abs(s2) < 25 and lat < 12 and not it.unreachable then
+				local name = it.label:gsub(":.*$", ""):gsub(", story character$", "")
+				got[#got + 1] = { name = name, d = d2 }
+			end
+		end
+	end
+	if #got == 0 then return nil end
+	table.sort(got, function(a, b) return a.d < b.d end)
+	local names, seen = {}, {}
+	for _, g in ipairs(got) do
+		if not seen[g.name] then seen[g.name] = true names[#names + 1] = g.name end
+		if #names >= 4 then break end
+	end
+	return "In here: " .. table.concat(names, ", ") .. "."
+end
 local function category_of(it)
 	if it.monster then return "Monsters" end
 	if it.sparkle then return "Sparkly spots" end
 	if it.item then return "Items" end
+	-- things you work (the Quarantomb's sage statues, with a button on the wand; levers and
+	-- switches) go with the items, where you look for things to do
+	if it.thing and it.label and (it.label:find("button", 1, true) or it.label:find("lever", 1, true)
+		or it.label:find("switch", 1, true) or it.label:find("control panel", 1, true)) then return "Items" end
 	if it.event then return "Events" end
 	if it.obj then return it.thing and "Objects" or "People" end
 	if it.kind == 1 then return "Doors" end
@@ -3796,7 +4142,8 @@ local function step_category(delta)
 			local note = ""
 			-- (out in the open there are no rooms: across water or up a cliff)
 			local code = map_code() or ""
-			local open = code:match("^F") or code:match("^S")
+			-- (nor for exits, which are often on a ledge above or below: Tywll Cave's outside)
+			local open = code:match("^F") or code:match("^S") or CATEGORIES[category] == "Exits"
 			if away == n and n > 0 then note = open and ", all out of reach from here" or ", all in other rooms, no way there from here"
 			elseif away > 0 then note = ", " .. away .. (open and " of them out of reach from here" or " of them in other rooms") end
 			say(CATEGORIES[category] .. ", " .. (n > 0 and n or "none here right now") .. note, true)
@@ -4373,7 +4720,7 @@ function stairs_mark(list)
 	if not nv or nv.nfloors == 0 then return end
 	local _, py = player_pos()
 	for _, d in ipairs(list) do
-		if d.kind == 0 and d.y0 and not EXIT_NAMES[d.id] and not exit_name_here(d.id) and not (d.id >= 20000 and d.id < 30000) then
+		if d.kind == 0 and d.y0 and not EXIT_NAMES[d.id] and not exit_name_here(d.id) and not exit_name_xy(d.x, d.z) and not (d.id >= 20000 and d.id < 30000) then
 			local lo, hi, sum, n = math.huge, -math.huge, 0, 0
 			for i = 0, 4 do for j = 0, 4 do
 				local x, z = d.x0 + (d.x1 - d.x0) * i / 4, d.z0 + (d.z1 - d.z0) * j / 4
@@ -4522,6 +4869,8 @@ function reach_region(n, px, py, pz, shut)
 	return res
 end
 -- the same over floors at different heights (stairs, ramps, balconies)
+-- an exit's box, as a key (the avoid list keeps some boxes as copies)
+function box_key(b) return string.format("%.1f,%.1f,%.1f,%.1f", b.x0, b.x1, b.z0, b.z1) end
 function reach_region3(n, px, py, pz, avoid, maxc)
 	local C = REACH_CELL
 	local MAXC = maxc or REACH_MAX
@@ -4529,6 +4878,7 @@ function reach_region3(n, px, py, pz, avoid, maxc)
 	local sh = floor_near(n, px, pz, py, 1.5) or py
 	local function k3(i, j, h) return reach_key(i, j) * 64 + (math.floor(h * 2 + 0.5) % 64) end
 	local cells, seen, q, qh = {}, {}, {}, 1
+	local touched = {}
 	local fh_memo = {}
 	local function fhs_at(i, j)
 		local ck = reach_key(i, j)
@@ -4560,12 +4910,20 @@ function reach_region3(n, px, py, pz, avoid, maxc)
 			for _, nh in ipairs(fhs_at(ni, nj)) do
 				local k = k3(ni, nj, nh)
 				if not seen[k] and math.abs(nh - h) <= STEP_RISE * d[3] then
-					if clear_at3(n, x, z, nh, 0.25) and not wall_between3(n, i * C, j * C, x, z, math.max(h, nh))
-						and not in_avoid(avoid, x, z, nh, 0.6) then
-						seen[k] = true
-						cells[reach_key(ni, nj)] = true
-						count = count + 1
-						q[#q + 1] = { ni, nj, nh }
+					if clear_at3(n, x, z, nh, 0.25) and not wall_between3(n, i * C, j * C, x, z, math.max(h, nh)) then
+						if not in_avoid(avoid, x, z, nh, 0.6) then
+							seen[k] = true
+							cells[reach_key(ni, nj)] = true
+							count = count + 1
+							q[#q + 1] = { ni, nj, nh }
+						else
+							-- walked right up to an exit's box: that exit can be reached
+							for _, b in ipairs(avoid) do
+								local pad = b.pad or 0.6
+								if x > b.x0 - pad and x < b.x1 + pad and z > b.z0 - pad and z < b.z1 + pad
+									and (not b.y0 or (nh > b.y0 - 0.5 and nh < b.y1 + 0.5)) then touched[box_key(b)] = true end
+							end
+						end
 					end
 				end
 			end
@@ -4576,7 +4934,7 @@ function reach_region3(n, px, py, pz, avoid, maxc)
 			coroutine.yield()
 		end
 	end
-	local res = { n = n, cells = cells, cells3 = seen, k3 = k3, py = py, x = px, z = pz, truncated = truncated, count = count }
+	local res = { n = n, cells = cells, cells3 = seen, k3 = k3, py = py, x = px, z = pz, truncated = truncated, count = count, touched = touched }
 	if not maxc then REACH = res end
 	return res
 end
@@ -4663,13 +5021,25 @@ function reach_mark(list)
 		-- where you can walk; one across a river is out of reach)
 		if not it.mark then
 			local d = reach_near(R, it.x, it.z)
+			-- (a big exit box, 15 steps wide out in a field: what matters is walking up to it, which
+			-- the flood notes when it is stopped at the box's edge; its middle can be far inside)
+			if d > 0.5 and it.kind == 0 and it.x0 and R.touched and R.touched[box_key(it)] then d = 0 end
 			it.away = d
 			it.unreachable = d > (it.kind == 0 and 4.0 or it.kind and REACH_DOOR or REACH_TALK) or nil
 			local iy = it.y0 and it.y1 and (it.y0 + it.y1) / 2 or it.fy
 			-- (not for exits: a stairway's exit box sits up at the top of its steps, above the floor
 			-- you walk up from)
 			if not it.unreachable and iy and it.kind ~= 0 and reach_near3(R, n, it.x, it.z, iy) == false then it.unreachable = true end
-			it.level = it.unreachable and level_word(n, py, it.x, it.z, it.kind ~= 0 and iy or nil) or nil
+			-- (but an exit far below or above where you stand, more than a flight of steps, as the cave
+			-- mouth under the ledge outside Tywll Cave's upper floor, is on another level)
+			-- (not one the mod knows a stairway leads to, "stairs down to ...": the flood does not
+			-- follow every flight of steps down)
+			if not it.unreachable and it.kind == 0 and it.y0 and math.abs(it.y0 - py) > 4
+				and not (it.label or ""):find("^stairs") and not (it.label or ""):find("cave mouth on the ledge")
+				and reach_near3(R, n, it.x, it.z, it.y0) == false then
+				it.unreachable = true
+			end
+			it.level = it.unreachable and level_word(n, py, it.x, it.z, (it.kind ~= 0 or (it.y0 and math.abs(it.y0 - py) > 4)) and iy or nil) or nil
 		end
 	end
 	return list
@@ -4718,6 +5088,11 @@ end
 
 local walk = nil
 local function stop_walk(msg)
+	-- (stuck just as a battle starts: the screen freezes for the battle and the walk thinks it is
+	-- stuck. If a battle does come in the next moment, carry on after it.)
+	if msg and msg:find("^As close") and walk and walk.item and not walk.monster and (frame - walk.start) > 60 then
+		walk_resume = { it = walk.item, code = walk.code, frame = frame }
+	end
 	walk = nil
 	if msg and (msg:find("^Arrived") or msg:find("^In front of")) and sound then pcall(sound.play, "chime", 0, 0, -0.5, 0.8) end
 	if msg then say(msg, true) end
@@ -4743,6 +5118,23 @@ function zone_box(o)
 	if (ox - nx) ^ 2 + (oz - nz) ^ 2 > 3.0 ^ 2 then return nil end
 	return x0, z0, x1, z1
 end
+-- The same boxes, taken from the game's files for every map (map id -> {near x, near z, far x,
+-- far z}): some people, such as Coffinwell's innkeeper, have no pointer to theirs in memory.
+-- Talked to from anywhere else, she only talks about the disease.
+TALK_ZONES = {[100]={{-1.72,4.36,-0.82,5.46}}, [104]={{-3.94,-0.2,-2.84,1},{-3.52,-0.83,-1.52,1.17},{-3.19,-1.01,-1.89,0.19},{-1.01,-11.59,0.19,-9.99}}, [105]={{-2.65,-1.41,-0.05,0.68}}, [106]={{-2.55,-3.67,-1.35,-2.47}}, [107]={{-1.96,3.96,0.59,4.69},{-1.91,3.59,0.59,4.69},{0.21,5.25,1.51,6.85}}, [108]={{-1.08,0.18,0.92,2.18}}, [109]={{-0.76,-1.82,1.34,-0.82}}, [114]={{6.04,1.94,9.94,5.04},{12.72,6.12,14.51,8.52}}, [116]={{4.38,-33.95,5.87,-32.65}}, [198]={{-6.08,14.78,-4.08,16.88},{4.02,14.47,6.52,16.47}}, [200]={{-1.87,-10.86,1.83,-6.96}}, [201]={{-2.64,-40.32,2.45,-36.62}}, [204]={{-11.63,-17.35,-10.63,-16.35}}, [210]={{-4.58,0.05,-2.98,1.55}}, [211]={{-3.62,-0.02,-2.62,0.98}}, [216]={{-0.53,-0.88,0.47,0.12}}, [219]={{-0.53,-0.88,0.47,0.12},{1.77,7.72,3.86,9.32},{6.86,8.69,8.55,10.29}}, [401]={{-2.72,-9.23,2.57,-5.63}}, [1100]={{14.11,-18.15,15.91,-16.26}}, [1102]={{-2.1,-0.21,-1.1,0.79}}, [1103]={{-1.7,-0.2,0,1.59},{-1.04,0.32,-0.04,1.32}}, [1105]={{-2.1,-0.21,-1.1,0.79}}, [1106]={{-0.86,-3.18,0.94,-1.78}}, [1107]={{-2.1,-0.21,-1.1,0.79}}, [1110]={{-2.1,-0.21,-1.1,0.79}}, [1200]={{-13.26,-8.75,-11.26,-6.75},{-2.5,7.5,-0.5,9.5},{17.16,-16.26,18.26,-14.66}}, [1201]={{-4.77,-0.43,-1.47,1.17},{-4.37,-4.49,-1.27,-2.19},{-3.56,1.37,-2.36,3.17},{-1.09,-0.81,0.11,2.95}}, [1202]={{-1.09,-0.81,1.11,0.79},{3.86,-2.95,5.06,-1.66}}, [1203]={{-6.26,-1.13,-4.26,0.87},{-0.08,2.34,2.32,4.74}}, [1204]={{-4.77,-0.43,-1.47,1.17},{2.53,-2.87,5.93,0.03}}, [1206]={{-3.56,1.37,-2.36,3.17}}, [1300]={{-7.92,9.39,-5.82,11.59},{-5.06,16.87,-2.07,18.97},{2.18,16.61,5.18,18.81},{14.09,-8.87,15.09,-6.98}}, [1301]={{3.25,3.25,4.25,5.05}}, [1501]={{-3.7,-3.55,-0.01,-0.35},{-1.21,3.68,0.09,6.58}}, [1502]={{-2.36,-4.09,0.94,-1.09}}, [1503]={{-1.76,-1.63,0.14,-0.13}}, [1504]={{-1.05,-1.65,0.65,0.05}}, [1505]={{-7.64,-3.43,-5.54,0.66},{-4.55,-3.57,-2.15,0.83}}, [1506]={{-0.98,-1.13,0.92,0.17}}, [1700]={{-13.26,-8.75,-11.26,-6.75},{-12.84,3.67,-11.54,5.27},{-9.53,-19.34,-8.03,-17.84},{-5.65,-7.17,1.84,-1.88},{-2.5,7.5,-0.5,9.5},{6.31,8.4,8.11,10},{9.46,-1,11.16,0.6},{11.29,-16.74,12.89,-15.44},{11.83,3.33,13.53,5.13},{12.91,-7.91,14.91,-5.52},{16,-12.28,18,-9.88}}, [1706]={{-0.77,-11.01,0.73,-8.01}}, [1800]={{-12.26,-8.22,-9.86,-6.72},{-7.7,26.27,-5.2,29.06},{4,18.47,5.2,21.27}}, [1802]={{1.98,-1.5,2.98,-0.5}}, [1806]={{-0.48,2.84,0.62,5.04}}, [1807]={{5.23,-5.35,7.72,-2.65}}, [1808]={{-4.55,-5.27,-2.96,-3.37},{-1.18,-0.44,1.12,0.96}}, [1900]={{-19.2,17.7,-17.7,19.1},{-18.2,13.8,-15.8,16.4},{-10.89,4.49,-8.29,6.19},{-8.15,2.53,-4.85,4.22},{1.89,-0.14,4.29,1.06},{24.47,13.75,26.47,14.85}}, [1903]={{-0.89,-4.45,0.91,-3.05}}, [1904]={{6.74,-10.74,8.44,-9.74},{9.49,-0.47,10.49,0.53}}, [1911]={{-1.85,-1.64,1.95,-0.04},{-0.27,-1.62,2.52,-0.22}}, [2001]={{-10.28,1.13,-7.59,2.53}}, [2002]={{1.82,1.38,4.12,3.78}}, [2003]={{-6.28,-0.08,-2.78,3.32}}, [2004]={{2.48,-4.8,4.27,-3}}, [2005]={{-1,-3.06,1.19,-1.46}}, [2006]={{3.26,2.05,5.66,4.05}}, [2100]={{2.14,18.54,3.74,19.84}}, [2104]={{-1.37,-26.39,1.23,-24.79}}, [2107]={{-4.35,-2.07,-1.66,-0.67}}, [2200]={{-20.94,13.95,-19.24,15.45},{5.72,14.98,7.12,16.28}}, [2202]={{-4,-4.57,-3,-3.57},{-3.1,3.26,-2.1,4.26}}, [2203]={{0.15,-1.65,1.15,-0.65}}, [4104]={{-3.36,-2.52,3.24,1.27}}, [4105]={{-17.53,18.97,-15.84,21.17},{10.54,-2.83,13.44,0.47},{10.64,-2.81,16.14,0.68}}, [4106]={{-0.45,-18,0.55,-17}}, [4107]={{-13.51,11,-12.51,12},{-9.99,6.7,-8.29,8.7}}, [4201]={{-13.05,-2,-10.15,1.29},{-1.45,-10.94,1.55,-6.15}}, [4202]={{-9.57,8.57,-7.07,11.47},{-5.63,-10.74,-2.43,-6.05},{-3.43,-2.3,-0.53,-0.01},{-1.45,-10.94,1.55,-6.15},{2.73,-10.37,5.13,-5.98}}, [4301]={{-12.46,-6.89,-9.86,-4.8},{8.37,-7.75,11.36,-4.75}}, [4302]={{-29.6,-76.28,-26.31,-72.49}}, [4306]={{-2.52,-1.22,-0.92,-0.22},{-0.82,1.08,0.78,2.08},{0.88,-1.22,2.48,-0.22}}, [4504]={{-3.36,-2.52,3.24,1.27},{-3.05,-5.34,3.94,-0.35}}, [4506]={{-3.01,-18.85,2.88,-16.85}}, [4507]={{-13.88,10.59,-10.88,13.09}}, [5101]={{-3.68,-24.81,-2.08,-23.11},{0.01,-38.75,9.7,-28.86}}, [5301]={{-1.4,-0.44,1.2,0.56}}, [5500]={{3.85,5.14,5.15,6.54}}, [5800]={{-8.09,4.14,-6.29,5.94},{9.36,-0.93,10.86,0.07}}, [5801]={{-6.04,-1.97,-1.85,1.63},{1.08,0.73,2.88,2.83}}, [6000]={{-7.19,-7.36,-4.99,-4.96},{-3.66,-9.36,-1.46,-6.96},{0.44,-0.29,2.64,2.1},{3.66,-3.52,6.25,-0.73}}, [6001]={{-3.36,-0.15,-0.86,2.25}}, [6101]={{-1.31,-10.79,1.29,-8.79}}, [6401]={{2.27,-4.19,4.97,-2.89}}, [6404]={{2,-7.08,4,-4.99}}, [6500]={{-1.68,-5.57,-0.28,-4.17}}, [7101]={{-22.42,-20.48,-19.52,-17.38},{-1.07,-13.27,1.02,-11.27},{2.23,-13.57,4.82,-11.37}}, [7105]={{5.39,-33.54,11.48,-25.65}}, [7301]={{15.23,-10.26,17.42,-7.96}}, [7303]={{-2.75,-32.76,-0.05,-31.76},{0.5,11.5,2.5,14}}, [7307]={{-3.87,-2.27,-2.37,-0.47},{-0.5,-6.09,0.5,-5.09}}, [7402]={{-49.49,-73.48,-46.6,-70.48},{-49.44,-49.39,-46.65,-46.49},{-49.3,-1.08,-46.4,1.52},{-1.87,-73.54,2.03,-70.14},{-1.68,-97.23,1.71,-94.33},{-1.53,-49.34,1.56,-46.25},{-1.26,-26.39,1.33,-22.89},{-0.63,0.13,0.57,1.53},{22.38,-97.41,25.58,-94.11},{22.63,-1.25,25.43,1.35},{46.4,-73.26,49.6,-70.06}}, [7403]={{-1.13,-1.91,0.97,-0.01}}, [7701]={{-1.01,3.87,0.79,5.97}}, [7703]={{-15.32,3.25,-13.42,5.44},{-12.53,0.75,-10.63,2.95},{-9.85,-1.28,-7.95,0.92}}, [7706]={{-6.22,-8.51,-3.62,-6.51},{-2.12,-17.75,0.08,-14.75},{2.99,0.64,4.99,3.73}}, [7709]={{10.75,-7.77,13.34,-5.17}}, [7808]={{-10.03,-19.79,-6.13,-17.29}}, [7900]={{-4.24,5.4,-2.65,6.7}}, [7901]={{-11.61,-14.54,-10.11,-13.24}}, [7902]={{9.24,-16.35,10.93,-15.05},{13.42,8.63,15.12,9.93},{17.83,-16.22,19.53,-14.92}}, [8201]={{-12.03,11.66,-10.64,13.26},{-11.46,0.26,-10.46,1.26},{4.36,7.2,5.36,8.2}}, [8208]={{3.17,3.43,5.27,6.72}}, [8400]={{-0.69,8.22,0.61,9.32}}, [8703]={{2.6,8.39,3.8,9.49}}, [9003]={{-2.08,-12.37,1.92,-8.48}}, [9007]={{-1.06,-8.04,0.93,-5.74}}, [16000]={{-2.5,-3.51,-1,-1.72}}, [16100]={{-2.4,-4.04,-1.2,-2.64}}, [20001]={{7.09,-8.82,8.89,-6.82}}, [20002]={{-96.96,-39.88,-95.26,-38.38},{-75.35,-71.88,-73.65,-69.98}}, [20003]={{2.92,-44.43,4.42,-42.93}}, [20004]={{34.18,23.09,35.88,24.59}}, [20010]={{20.58,-19.35,22.58,-17.55}}, [20011]={{-2.41,-3.62,-0.61,-1.82}}, [20012]={{-3.83,31.58,-2.03,33.38}}, [20015]={{-26.12,9.96,-24.62,11.36},{-26.07,8.12,-24.57,9.52}}, [20016]={{32.84,-35.26,34.44,-33.86}}, [20023]={{54.61,-35.93,56.31,-34.24}}, [20024]={{14.39,-4.24,16.29,-2.45}}, [20027]={{-94.39,-8.24,-92.59,-6.44}}, [20039]={{28.18,4.18,29.98,6.28}}, [20061]={{11.93,-34.63,13.83,-32.73}}, [20063]={{-25.69,6.55,-23.99,7.95},{41.14,60.09,42.94,61.89}}, [50101]={{-2.33,-1.9,-1.33,-0.9},{-0.4,-1.88,0.6,-0.98},{2.07,-2.05,3.67,-0.55},{3.12,4.99,4.12,5.99},{3.34,-3.94,5.74,-2.04}}, [50201]={{-2.33,-1.9,-1.33,-0.9},{-0.4,-1.88,0.6,-0.98},{2.07,-2.05,3.67,-0.55},{3.12,4.99,4.12,5.99},{3.34,-3.94,5.74,-2.04}}, [50301]={{-2.33,-1.9,-1.33,-0.9},{-0.4,-1.88,0.6,-0.98},{2.07,-2.05,3.67,-0.55},{3.12,4.99,4.12,5.99},{3.34,-3.94,5.74,-2.04}}, [50401]={{-2.33,-1.9,-1.33,-0.9},{-0.4,-1.88,0.6,-0.98},{2.07,-2.05,3.67,-0.55},{3.12,4.99,4.12,5.99},{3.34,-3.94,5.74,-2.04}}}
+function zone_from_table(o)
+	local list = TALK_ZONES[u16(MAPID)]
+	if not list then return nil end
+	local ox, oz = s32(o + 0x24) / 4096, s32(o + 0x2C) / 4096
+	local best, bd = nil, 3.0 ^ 2
+	for _, b in ipairs(list) do
+		local nx, nz = math.max(b[1], math.min(ox, b[3])), math.max(b[2], math.min(oz, b[4]))
+		local d = (ox - nx) ^ 2 + (oz - nz) ^ 2
+		if d <= bd then best, bd = b, d end
+	end
+	if best then return best[1], best[2], best[3], best[4] end
+	return nil
+end
 function counter_zone(n, o, y)
 	if not o or not inram(o, 0x30) then return nil end
 	local x0, z0, x1, z1 = zone_box(o)
@@ -4758,7 +5150,14 @@ function counter_zone(n, o, y)
 			end
 		end
 	end
+	if not x0 then x0, z0, x1, z1 = zone_from_table(o) end
 	if not x0 then return nil end
+	-- (a box round the person themselves is where they can be talked to from anywhere, such as
+	-- the royal guard in Alltrades Abbey, not the far side of a counter: walk to them as usual)
+	do
+		local ox, oz = s32(o + 0x24) / 4096, s32(o + 0x2C) / 4096
+		if ox >= math.min(x0, x1) - 0.1 and ox <= math.max(x0, x1) + 0.1 and oz >= math.min(z0, z1) - 0.1 and oz <= math.max(z0, z1) + 0.1 then return nil end
+	end
 	local cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
 	if not n then return { x = cx, z = cz } end
 	local best, bd = nil, 1e9
@@ -4924,6 +5323,7 @@ local function start_walk()
 	walk = { x = it.x, z = it.z, tx0 = it.x, tz0 = it.z, gy = it.y0 and (it.y0 + 1) or nil, label = it.label, obj = it.obj, posoff = it.posoff or 0x24, start = frame, code = map_code(), sx = px, sz = pz,
 	         best = 1e9, progress = frame, side = 1, side_until = 0, tries = 0, push = 0, exit = (it.kind == 0) or nil, place = place_key(),
 	         person = (it.obj and not it.thing and not it.item and not it.monster) or nil,
+	         monster = it.monster or nil, boss = it.boss or nil,
 	         doorlike = (it.kind == 1 and not it.nx) or nil, item = it }
 	walk_resume = nil
 	if it.nx then
@@ -4954,6 +5354,34 @@ local function start_walk()
 		walk.x, walk.z = it.x + walk.door.nx * out, it.z + walk.door.nz * out
 		walk.stage = "front"
 	end
+	-- something worked from a spot the game marks (the Starflight Express's control panel: A
+	-- does nothing from a step further back): stand in that spot, nearest the thing, and face it
+	if it.obj and it.thing and not it.monster then
+		local ok, x0, z0, x1, z1 = pcall(zone_from_table, it.obj)
+		if ok and x0 then
+			local lo_x, hi_x = math.min(x0, x1) + 0.25, math.max(x0, x1) - 0.25
+			local lo_z, hi_z = math.min(z0, z1) + 0.25, math.max(z0, z1) - 0.25
+			if lo_x > hi_x then lo_x, hi_x = (x0 + x1) / 2, (x0 + x1) / 2 end
+			if lo_z > hi_z then lo_z, hi_z = (z0 + z1) / 2, (z0 + z1) / 2 end
+			local sx, sz = math.max(lo_x, math.min(it.x, hi_x)), math.max(lo_z, math.min(it.z, hi_z))
+			-- (the spot nearest the thing can be under the thing itself: stop where the floor
+			-- lets you, if that is still in the marked spot)
+			local nz0 = nav_ready()
+			if nz0 then
+				local px1, py1, pz1 = player_pos()
+				local okp, path = pcall(plan_path, nz0, px1, py1, pz1, sx, sz, nil, 0.45, true, 4000, {})
+				local last = okp and path and path[#path]
+				if last and last[1] >= math.min(x0, x1) and last[1] <= math.max(x0, x1) and last[2] >= math.min(z0, z1) and last[2] <= math.max(z0, z1) then
+					sx, sz = last[1], last[2]
+				end
+			end
+			walk.x, walk.z, walk.obj, walk.face = sx, sz, nil, { it.x, it.z }
+			local lb = it.label:gsub("%.+$", "")
+			walk.face_msg = "In front of " .. lb .. ". Press A."
+			say("Walking to the front of " .. lb .. ". Press any button to stop.", true)
+			return
+		end
+	end
 	-- a sign: go to the side it can be read from and face it
 	if it.rot and it.thing and not it.item then
 		local fr = sign_front(nav_ready(), it)
@@ -4965,8 +5393,9 @@ local function start_walk()
 			return
 		end
 	end
-	-- someone behind a counter: go round to the front of it
-	if it.obj and not it.nx then
+	-- someone behind a counter: go round to the front of it (never a monster: a metal slime
+	-- beside a table was walked to "across the counter" and never touched)
+	if it.obj and not it.nx and not it.monster and not it.boss then
 		local n = nav_ready()
 		local _, py = player_pos()
 		local ap = n and counter_approach(n, it.x, it.z, it.y0 or py or 0, it.obj)
@@ -5035,16 +5464,18 @@ function walk_resume_step()
 	end
 	-- (wait for the battle's last messages to go, and for you to stop pressing buttons to clear
 	-- them: a press would stop the walk again straight away)
+	-- (and for the experience and gold messages after it, which are read as they come up)
 	if in_battle() or frame - battle_seen_frame < 150 or frame - last_dialogue_frame < 90 or fading()
-		or frame - USER_INPUT_FRAME < 45 then return end
-	if map_code() ~= r.code or frame - r.frame > 60 * 120 then walk_resume = nil return end
+		or frame - USER_INPUT_FRAME < 60 or frame - LAST_SAY_FRAME < 100 then return end
+	if map_code() ~= r.code or frame - r.frame > 60 * 120 or SKILL_UI_FRAME > r.frame then walk_resume = nil return end
 	walk_resume = nil
 	sel_item = r.it
 	start_walk()
 end
 local function walk_step(host_pressed)
 	if not walk then return end
-	local function keep_resume() if walk and walk.item and (frame - walk.start) > 60 then walk_resume = { it = walk.item, code = walk.code, frame = frame } end end
+	-- (not after walking into a monster: that battle was the point)
+	local function keep_resume() if walk and walk.item and not walk.monster and (frame - walk.start) > 60 then walk_resume = { it = walk.item, code = walk.code, frame = frame } end end
 	if host_pressed then keep_resume() stop_walk("Stopped.") return end
 	if map_code() ~= walk.code or (walk.place and place_key() ~= walk.place) then stop_walk() return end   -- went through a door
 	if in_battle() or frame - last_dialogue_frame < 10 then
@@ -5060,6 +5491,10 @@ local function walk_step(host_pressed)
 	if frame - walk.start > 60 * 240 then stop_walk("Could not get there.") return end
 	local dx, dz = walk.x - px, walk.z - pz
 	local d = math.sqrt(dx * dx + dz * dz)
+	if walk.close and d > 4 then walk.close = nil end
+	if walk.face or walk.boss then
+		if not walk.fbest or d < walk.fbest - 0.1 then walk.fbest, walk.fprog = d, frame end
+	end
 	if WALK_DEBUG and frame % 6 == 0 then
 		local pts = {}
 		for k, q in ipairs(walk.path or {}) do if k >= (walk.pi or 1) then pts[#pts + 1] = string.format("(%.1f,%.1f)", q[1], q[2]) end end
@@ -5085,7 +5520,13 @@ local function walk_step(host_pressed)
 		walk.best, walk.progress, walk.tries, walk.push, walk.follow, walk.stall, walk.path, walk.co = 1e9, frame, 0, 0, nil, 0, nil, nil
 		return
 	end
-	if walk.stage == "in" and walk.doorlike and d < 0.4 then stop_walk("Through " .. walk.label .. ".") return end
+	if walk.stage == "in" and walk.doorlike and d < 0.4 then
+		local msg = "Through " .. walk.label .. "."
+		local ok, here = pcall(through_summary, walk.item, px, pz, walk.sx, walk.sz)
+		if ok and here then msg = msg .. " " .. here end
+		stop_walk(msg)
+		return
+	end
 	if walk.stage == "in" then
 		if d < 0.3 then walk.push = walk.push + 1 end
 		if walk.push > 40 or (frame - walk.progress > 40) then
@@ -5112,7 +5553,22 @@ local function walk_step(host_pressed)
 		end
 	elseif walk.exit and not walk.door and d < 0.7 then
 		start_exit_push(walk, px, pz) return
-	elseif not walk.door and d < (walk.obj and 1.4 or (walk.face and 0.35 or 0.7)) then
+	elseif walk.monster and walk.obj and d < 2.5 then
+		-- a monster: walk right into it, and keep after it if it runs (metal slimes do), until the
+		-- battle starts
+		walk.close = walk.close or frame
+		if frame - walk.close > 60 * 8 then
+			stop_walk("Could not catch " .. walk.label .. ". It keeps running away. Try coming at it from behind, or between it and a wall.")
+			return
+		end
+		if d > 0.05 then pcall(function() joypad.set(DIRS[dir_toward(dx, dz) + 1]) end) end
+		return
+	elseif not walk.door and (d < (walk.obj and (walk.boss and 3.5 or 1.4) or (walk.face and 0.35 or 0.7))
+		-- (a boss is big: Lleviathan is talked to from a few steps away)
+		or (walk.boss and walk.obj and d < 5 and walk.fbest and frame - walk.fprog > 45)
+		-- (nearly at the spot in front of someone and no closer for a second: a follower or a
+		-- bit of furniture is in the way, and A reaches from here)
+		or (walk.face and d < 1.1 and walk.fbest and frame - walk.fprog > 60)) then
 		-- (across a counter, the talk only reaches straight across: get right in front of them)
 		-- next to someone: turn to them, so A talks to them
 		if walk.obj and not walk.face then walk.face = { walk.x, walk.z } walk.face_msg = "Arrived at " .. walk.label .. "." end
@@ -5139,8 +5595,28 @@ local function walk_step(host_pressed)
 	-- Follow a planned route when the map's walls are known.
 	local nv = not walk.nopath and nav_for()
 	if nv then
-		if walk.path and walk.obj and ((walk.x - walk.goal[1]) ^ 2 + (walk.z - walk.goal[2]) ^ 2) > 4 then walk.path = nil end
-		if not walk.path then
+		-- Nothing in the way: go straight there at once, without waiting for a route to be
+		-- worked out (a metal slime is gone by then). A monster or person on the move is chased
+		-- like this all the way. If something the walls do not show stops you, plan after all.
+		if d < 25 and frame >= (walk.nodirect or 0) and not walk.door then
+			local py0 = select(2, player_pos())
+			nv.py = py0
+			if (not walk.gy or not py0 or math.abs(walk.gy - 1 - py0) < 1.0) and line_ok(nv, px, pz, walk.x, walk.z, 0.3) then
+				if not walk.direct then walk.direct, walk.dbest, walk.dprog = true, d, frame end
+				if d < walk.dbest - 0.2 then walk.dbest, walk.dprog = d, frame end
+				if frame - walk.dprog < 45 then
+					if walk.obj then walk.co, walk.path = nil, nil end
+					pcall(function() joypad.set(DIRS[dir_toward(dx, dz) + 1]) end)
+					return
+				end
+				walk.nodirect, walk.direct = frame + 240, nil
+			else
+				walk.direct = nil
+			end
+		end
+		-- (someone on the move: work out a new route, but keep to the old one meanwhile)
+		if walk.path and walk.obj and not walk.co and ((walk.x - walk.goal[1]) ^ 2 + (walk.z - walk.goal[2]) ^ 2) > 4 then walk.stale = true end
+		if not walk.path or walk.stale then
 			if not walk.co then
 				local sx, sz, gx, gz = px, pz, walk.x, walk.z
 				walk.goal = { gx, gz }
@@ -5170,14 +5646,15 @@ local function walk_step(host_pressed)
 			end
 			local ok, p, rem = plan_resume(walk.co)
 			if not ok then
-				walk.nopath, walk.co = true, nil
+				walk.nopath, walk.co, walk.stale = true, nil, nil
 			elseif coroutine.status(walk.co) == "dead" then
 				walk.co, walk.path, walk.pi, walk.wbest, walk.wprog, walk.rem = nil, p or {}, 1, 1e9, frame, rem or 0
+				walk.stale = nil
 				walk.plan_d = math.sqrt((walk.x - px) ^ 2 + (walk.z - pz) ^ 2)
 				walk.seg0 = { px, pz }
 				walk.checked_from = frame
 			end
-			return
+			if not (walk.stale and walk.path) then return end
 		end
 		local wp = walk.path[walk.pi]
 		while wp and ((wp[1] - px) ^ 2 + (wp[2] - pz) ^ 2) < 0.25 do
@@ -5421,7 +5898,7 @@ VOCATIONS = { [0] = "", "Warrior", "Priest", "Mage", "Martial Artist", "Thief", 
 	"Gladiator", "Armamentalist", "Paladin", "Sage", "Luminary", "Ranger" }
 IN_BATTLE = 0x020EF0E8
 
-local function party_records()
+function party_records()
 	local list = {}
 	local hero = cstring(0x020FB258, 12)
 	for k = 0, 3 do
@@ -5668,7 +6145,7 @@ function watch_battle_actor()
 	local it = cursor and items[cursor]
 	if not it then return end
 	battle_actor_said = who
-	battle_actor_text, battle_actor_frame = describe_item(it, cursor, count), frame
+	battle_actor_text, battle_actor_frame = describe_item(it, cursor, count, items), frame
 	last_menu_spoken = frame
 	say(turn_text(who) .. battle_actor_text, true)
 end
@@ -5685,12 +6162,27 @@ function layout_windows(L)
 	local t, n = u32(L + 0x0C), u16(L + 0x10)
 	if n == 0 or n > 64 or not inram(t, n * 0x18) then return {} end
 	local out = {}
+	-- (the windows list their boxes by the boxes' ids, which are usually where they are in the
+	-- list but not always: the Krak Pot's skip some, so turn them into places)
+	local W, count = u32(L + 4), u16(L + 8)
+	local at = nil
+	if count > 0 and count < 400 and inram(W, count * 0x30) then
+		for i = 0, count - 1 do
+			local id = u16(W + 0x30 * i + 4)
+			if id ~= i then at = at or {} end
+			if at then break end
+		end
+		if at then for i = 0, count - 1 do at[u16(W + 0x30 * i + 4)] = i end end
+	end
 	for k = 0, n - 1 do
 		local e = t + k * 0x18
 		local list, c = u32(e), u8(e + 0x13)
 		local boxes = {}
 		if c > 0 and c < 64 and inram(list, c * 2) then
-			for j = 0, c - 1 do boxes[#boxes + 1] = u16(list + j * 2) end
+			for j = 0, c - 1 do
+				local id = u16(list + j * 2)
+				boxes[#boxes + 1] = at and at[id] or id
+			end
 		end
 		out[#out + 1] = { id = u16(e + 8), x = u16(e + 0x0A), y = u16(e + 0x0C), w = u16(e + 0x0E), h = u16(e + 0x10), boxes = boxes }
 	end
@@ -5706,27 +6198,32 @@ function window_open(L, win)
 	end
 	return false
 end
+-- (a screen can have more than one How many? window, such as the Krak Pot's: the one that is
+-- open is the one)
 function qty_find(L, W, count)
-	if qty.W == W and qty.idx then return qty.idx end
-	if qty.W == W and frame - qty.checked < 60 then return nil end
-	qty.W, qty.idx, qty.checked, qty.win = W, nil, frame, nil
-	for i = 0, count - 1 do
-		local a = W + 0x30 * i
-		local k, sid = u16(a + 0x12) >> 8, u16(a + 0x0E)
-		if (k == 0xFA or k == 0xAA) and sid ~= 0xFFFF and layout_string(L, sid) == "How many?" then
-			for _, w in ipairs(layout_windows(L)) do
-				for _, b in ipairs(w.boxes) do if b == i then qty.win = w end end
+	if qty.W ~= W or frame - qty.checked >= 60 or not qty.list then
+		qty.W, qty.checked, qty.list = W, frame, {}
+		for i = 0, count - 1 do
+			local a = W + 0x30 * i
+			local k, sid = u16(a + 0x12) >> 8, u16(a + 0x0E)
+			if (k == 0xFA or k == 0xAA) and sid ~= 0xFFFF and layout_string(L, sid) == "How many?" then
+				local win = window_of(L, i)
+				if win then qty.list[#qty.list + 1] = { i = i, win = win } end
 			end
-			if qty.win then qty.idx = i end
-			return qty.idx
 		end
 	end
-	return nil
+	if #qty.list == 0 then qty.idx, qty.win = nil, nil return nil end
+	local pick = qty.list[1]
+	if #qty.list > 1 then
+		for _, c in ipairs(qty.list) do if window_open(L, c.win) then pick = c break end end
+	end
+	qty.idx, qty.win = pick.i, pick.win
+	return qty.idx
 end
 function qty_number(W, i)
 	local a = W + 0x30 * i
 	local k = u16(a + 0x12)
-	if ((k >> 8) == 0xF8 or (k >> 8) == 0xFA or (k >> 8) == 0xA8) and (k & 0xFF) == 3 then return u32(a) end
+	if ((k >> 8) == 0xF8 or (k >> 8) == 0xFA or (k >> 8) == 0xA8 or (k >> 8) == 0xFC) and (k & 0xFF) == 3 then return u32(a) end
 	return nil
 end
 -- "Retro 1, Bag 0": the rows of the other windows on screen that are a name and a number
@@ -5773,6 +6270,13 @@ function read_quantity(L, W, count, sel)
 		local v = qty_number(W, j)
 		if v then if not n then n = v elseif not total then total = v break end end
 	end
+	-- (the Krak Pot's number comes before the words, in the same window)
+	if not n then
+		for _, j in ipairs(qty.win.boxes) do
+			local v = j < count and qty_number(W, j)
+			if v then n = v break end
+		end
+	end
 	if not n then return true end
 	local line = tostring(n) .. (total and (", " .. total .. " gold") or "")
 	if line == qty.said then qty.pending = nil return true end
@@ -5782,7 +6286,8 @@ function read_quantity(L, W, count, sel)
 	qty.said, qty.pending = line, nil
 	if first then
 		local text = "How many? " .. line .. ". Up and down change it."
-		local held = qty_held(L, W, count, sel, i)
+		-- (the Krak Pot: the list under it already says how many you have)
+		local held = layout_box(L, W, 0) ~= "Krak Pot" and qty_held(L, W, count, sel, i) or {}
 		if #held > 0 then text = text .. " Held: " .. table.concat(held, ", ") .. "." end
 		say(text, true)
 	else
@@ -5900,6 +6405,41 @@ end
 
 EQUIP_POPUP = { Equip = true, Move = true, Discard = true, Cancel = true }
 layout_box_g = function(...) return layout_box(...) end
+-- What is in the Krak Pot (Try Your Luck): three slots of an item and how many, found from a
+-- table of pointers that stays put. Said when it changes, after the game's "... added to the pot!"
+POT_PTRS = 0x02380814
+pot_sig, pot_check = nil, 0
+function pot_slots()
+	local b = u32(POT_PTRS)
+	if not inram(b, 0x100) then return nil end
+	b = b + 0xBC
+	local out = {}
+	for k = 0, 2 do
+		local id, n = u16(b + 2 * k), u8(b + 0x14 + k)
+		if id ~= 0xFFFF and id ~= 0 and n > 0 and n < 100 then
+			if not ITEM_NAMES[id] then return nil end       -- not the pot after all
+			out[#out + 1] = { id = id, n = n }
+		end
+	end
+	return out
+end
+function pot_text(slots)
+	if #slots == 0 then return "The pot is empty." end
+	local parts = {}
+	for _, s in ipairs(slots) do parts[#parts + 1] = ITEM_NAMES[s.id] .. " " .. s.n end
+	return "In the pot: " .. table.concat(parts, ", ") .. "."
+end
+local function watch_pot(L, W)
+	if frame < pot_check then return end
+	pot_check = frame + 6
+	if layout_box(L, W, 0) ~= "Krak Pot" then pot_sig = nil return end
+	local slots = pot_slots()
+	if not slots then return end
+	local sig = ""
+	for _, s in ipairs(slots) do sig = sig .. s.id .. "x" .. s.n .. ";" end
+	if pot_sig and sig ~= pot_sig then queue(pot_text(slots)) end
+	pot_sig = sig
+end
 local function read_layout()
 	local p = u32(LAYOUT_PTR)
 	if p == 0 or not inram(p, 0x40) then lay_state = nil return end
@@ -5916,6 +6456,7 @@ local function read_layout()
 	local W, count, sel = u32(L + 4), u16(L + 8), u16(L + 0x36)
 	if sel ~= 0xFFFF then lay_good, lay_good_frame = p, frame end
 	if count == 0 or count > 1000 or not inram(W, count * 0x30) then return end
+	pcall(watch_pot, L, W)
 	if read_quantity(L, W, count, sel) then return end
 	-- the cursor holds a box's id (+4), which is usually, but not always, its place in the array
 	if sel >= count or u16(W + 0x30 * sel + 4) ~= sel then
@@ -5928,6 +6469,8 @@ local function read_layout()
 	-- (but not the list you just left, which stays in memory for a moment while the menu comes back)
 	if lay_serial ~= dialogue_serial and not using_fallback then lay_serial, lay_skip, lay_state, lay_rearm = dialogue_serial, lay_state, nil, frame end
 	local text = layout_box(L, W, sel)
+	-- (a recipe you have not learnt yet, "???" in the Alchenomicon: a box of its own kind)
+	if not text and (u16(W + 0x30 * sel + 0x12) >> 8) == 0x3A and (u16(W + 0x30 * sel + 0x12) & 0xFF) == 0x04 then text = "not found yet" end
 	if not text then return end
 	local a = W + 0x30 * sel
 	local sx, sy = u16(a + 6), u16(a + 8)
@@ -5945,7 +6488,8 @@ local function read_layout()
 		local id = (it - W) // 0x30
 		if id > last then last = id end
 		local bt = layout_box(L, W, id)
-		if bt then
+		-- (a row not drawn now keeps its old words: the Krak Pot's ingredient lists)
+		if bt and (it == a or box_shown(W, id)) then
 			total = total + 1
 			if it == a then pos = total end
 			if not EQUIP_POPUP[bt] then popup_like = false end
@@ -5965,7 +6509,7 @@ local function read_layout()
 		for i = last + 1, math.min(count - 1, last + 45) do
 			local b = W + 0x30 * i
 			local bx, by = u16(b + 6), u16(b + 8)
-			if math.abs(by - sy) <= 1 and bx >= sx + 30 and u16(b + 0x0A) > 0 and (not inwin or inwin[i]) then
+			if math.abs(by - sy) <= 1 and bx >= sx + 30 and box_shown(W, i) and (not inwin or inwin[i]) then
 				local t = layout_box(L, W, i)
 				if t then extra[#extra + 1] = { bx, t } end
 			end
@@ -5978,6 +6522,7 @@ local function read_layout()
 	for k, e in ipairs(extra) do
 		local t = e[2]
 		if shop and t:match("^%d+$") then t = t .. (k == 1 and " gold" or " held") end
+		if not shop and t:match("^%d+$") and layout_box(L, W, 0) == "Krak Pot" then t = "you have " .. t end
 		line = line .. ", " .. t
 	end
 	line = line:gsub("Lv%.,%s*(%d+)", "level %1")
@@ -6000,6 +6545,97 @@ local function read_layout()
 		end
 	end
 	if total > 1 then line = line .. ", " .. pos .. " of " .. total end
+	-- the page, when the list has more than one ("1 / 3" under it, two numbers side by side in
+	-- the same window: the Krak Pot's ingredients)
+	if inwin and total >= 1 then
+		local maxy, it2, g2 = sy, first, 0
+		while it2 and g2 < 60 do
+			maxy = math.max(maxy, u16(it2 + 8))
+			local nx = u32(it2 + 0x1C)
+			if not inram(nx, 0x30) or (nx - W) % 0x30 ~= 0 then break end
+			it2, g2 = nx, g2 + 1
+		end
+		local nums = {}
+		for i in pairs(inwin) do
+			local b = W + 0x30 * i
+			if i < count and u16(b + 0x12) == 0xF803 and box_shown(W, i) and u16(b + 8) > maxy + 5 then
+				nums[#nums + 1] = { x = u16(b + 6), y = u16(b + 8), v = u32(b) }
+			end
+		end
+		if #nums == 2 and math.abs(nums[1].y - nums[2].y) <= 1 and math.abs(nums[1].x - nums[2].x) <= 12 then
+			table.sort(nums, function(p, q) return p.x < q.x end)
+			local pg, pgs = nums[1].v, nums[2].v
+			if pgs > 1 and pg >= 1 and pg <= pgs and pgs < 100 then line = line .. ", page " .. pg .. " of " .. pgs end
+		end
+	end
+	-- a list in two columns read across, each column chained on its own (the Alchenomicon:
+	-- Strong medicine beside the first recipe, then Special medicine, Superior medicine ...,
+	-- with "???" for the ones not learnt yet): count along the rows over the whole grid, and say
+	-- the page
+	do
+		local f0 = u16(a + 0x12)
+		if (f0 & 0xFF) == 0x04 and ((f0 >> 8) == 0xFA or (f0 >> 8) == 0x3A) then
+			-- this box's column (its chain), and the columns that start level with it
+			local function fam(b) local f = u16(b + 0x12) return (f & 0xFF) == 0x04 and ((f >> 8) == 0xFA or (f >> 8) == 0x3A) end
+			local function chain_from(b)
+				local out, g = {}, 0
+				while b and inram(b, 0x30) and (b - W) % 0x30 == 0 and g < 60 do
+					out[#out + 1] = b
+					local nx = u32(b + 0x1C)
+					if nx == 0 then break end
+					b, g = nx, g + 1
+				end
+				return out
+			end
+			local head, g = a, 0
+			while g < 60 do
+				local pv = u32(head + 0x18)
+				if pv == 0 or not inram(pv, 0x30) or (pv - W) % 0x30 ~= 0 then break end
+				head, g = pv, g + 1
+			end
+			local cells, ncol = {}, 0
+			local hy = u16(head + 8)
+			-- (the columns of one grid have the same row spacing: the Alchenomicon's grid stays in
+			-- memory behind Try Your Luck's single list, level with it)
+			local function spacing(ch) return ch[2] and (u16(ch[2] + 8) - u16(ch[1] + 8)) or nil end
+			local sp = spacing(chain_from(head))
+			for i = 0, count - 1 do
+				local b = W + 0x30 * i
+				-- (a list that is not drawn now has boxes of no width)
+				local ch = (fam(b) and u32(b + 0x18) == 0 and u32(b + 0x1C) ~= 0 and math.abs(u16(b + 8) - hy) <= 3 and u16(b + 0x0A) > 0) and chain_from(b) or nil
+				local spb = ch and spacing(ch)
+				if ch and sp and spb and math.abs(spb - sp) <= 1 then
+					ncol = ncol + 1
+					for _, c in ipairs(ch) do
+						cells[#cells + 1] = { i = (c - W) // 0x30, x = u16(c + 6), y = u16(c + 8) }
+					end
+				end
+			end
+			if ncol >= 2 and #cells >= 4 then
+				table.sort(cells, function(p, q) if math.abs(p.y - q.y) > 3 then return p.y < q.y end return p.x < q.x end)
+				local at = 0
+				for k, c in ipairs(cells) do if c.i == sel then at = k end end
+				if at > 0 then
+					line = text
+					for _, e in ipairs(extra) do line = line .. ", " .. e[2] end
+					line = line .. ", " .. at .. " of " .. #cells
+					-- (a recipe: what it takes, and what you have of it)
+					if text ~= "not found yet" then
+						local okr, rt = pcall(recipe_text, text)
+						if okr and rt then line = line .. ". " .. rt end
+					end
+					local pg, pgs = nil, nil
+					for i = 0, count - 1 do
+						local b = W + 0x30 * i
+						if u16(b + 0x12) == 0xF803 and u16(b + 8) > 110 and (not inwin or inwin[i]) then
+							if not pg then pg = u32(b) else pgs = u32(b) end
+						end
+					end
+					if pg and pgs and pgs > 1 then line = line .. ", page " .. pg .. " of " .. pgs end
+				end
+			end
+		end
+	end
 	-- the Defeated Monster List's first choice (View All Monsters / View By Family): say how
 	-- complete the list is, once (the numbers are boxes of kind 0xFA03 beside the words)
 	if text:match("^View ") and layout_string(L, 2) == "Defeated Monster List Completion:" and MON_HEAD_SAID ~= W then
@@ -6069,6 +6705,10 @@ local function read_layout()
 	if key == lay_skip and frame - lay_rearm < 90 then return end
 	lay_skip = nil
 	lay_state, lay_pending = key, nil
+	-- (the description that goes with this item: any other item's description seen in the
+	-- next moments is the last one's, still in its box)
+	local okd, dsc = pcall(item_desc_of, text)
+	LAYOUT_MOVE = { at = frame, prev = LAST_PLAIN_T, desc = okd and dsc and clean_text_g(dsc) or nil }
 	if frame - last_dialogue_frame < 5 then queue(line) else say(line, true) end
 	local dsc = item_desc_of(text)
 	if dsc then queue(dsc) end
@@ -7014,7 +7654,13 @@ end
 local function say_gold()
 	local g = u32(0x020F6D48)
 	if g > 9999999 then say("Gold unknown.") return end
-	say(g .. " gold", true)
+	-- (at the Krak Pot, choosing ingredients: what is in the pot too)
+	local extra = ""
+	if pot_sig then
+		local ok, slots = pcall(pot_slots)
+		if ok and slots then extra = " " .. pot_text(slots) end
+	end
+	say(g .. " gold" .. (extra ~= "" and ("." .. extra) or ""), true)
 end
 
 local function say_where()
@@ -7228,7 +7874,7 @@ function route_request(beacon)
 		-- a sign: the route goes to the side it can be read from
 		local fr = sign_front(nv, it)
 		gx, gz, counter_route = fr.x, fr.z, "sign"
-	elseif it.obj then
+	elseif it.obj and not it.monster and not it.boss then
 		-- someone behind a counter: the route goes to the front of it
 		local ap = counter_approach(nv, it.x, it.z, it.y0 or py or 0, it.obj)
 		if ap then gx, gz, counter_route = ap.x, ap.z, true else counter_route = false end
@@ -7548,20 +8194,21 @@ function beacon_toggle()
 	route_request(true)
 end
 
--- The auto walk beep: faster the nearer you are to where you are going (along the way, not as the
--- crow flies), and quiet once you are there.
+-- The auto walk beep tells you that you are really moving, and how near you are:
+--   a beep for every step you actually cover (so it goes as fast as you walk, and stops when you
+--   stop), higher in pitch the nearer you are to where you are going (along the way, not as the
+--   crow flies); while you are standing still (working out the way, turning, held up by
+--   something) a soft low knock about once a second instead, so you know it is still on.
 WALK_BEEP_NEXT = 0
+wbeep = { x = nil, z = nil, moved = 0, still = 0, knock_next = 0 }
 -- The auto walk beep, louder than a sound can be played at once: the same beep on two or three
 -- sounds together adds up (volume 10 is a little over twice the old loudest)
-function walk_beep_sound()
+function walk_beep_sound(pitch)
 	local g = 2.2 * WALK_BEEP_VOL / 10
 	local copies = math.max(1, math.ceil(g))
-	for _ = 1, copies do pcall(sound.play, "beep", 0, 0, -1, g / copies) end
+	for _ = 1, copies do pcall(sound.play, "beep", 0, 0, -1, g / copies, pitch or 1.0) end
 end
-function walk_beep()
-	if not walk or not sound or not WALK_BEEP_ON then WALK_BEEP_NEXT = 0 return end
-	local px, _, pz = player_pos()
-	if not px or frame < WALK_BEEP_NEXT then return end
+local function walk_left(px, pz)
 	local left
 	if walk.path and walk.pi then
 		local x, z = px, pz
@@ -7575,9 +8222,48 @@ function walk_beep()
 	else
 		left = math.sqrt(((walk.tx0 or walk.x) - px) ^ 2 + ((walk.tz0 or walk.z) - pz) ^ 2)
 	end
-	if WALK_BEEP_ON and WALK_BEEP_VOL > 0 then walk_beep_sound() end
-	-- (quick from the start: half a second apart at 20 steps or more, down to a tenth of a second)
-	WALK_BEEP_NEXT = frame + math.floor(60 * math.max(0.1, math.min(0.5, 0.08 + left * 0.021)) + 0.5)
+	return left
+end
+function walk_beep()
+	if not walk or not sound or not WALK_BEEP_ON or WALK_BEEP_VOL <= 0 then
+		wbeep.x, wbeep.moved, wbeep.still = nil, 0, 0
+		return
+	end
+	local px, _, pz = player_pos()
+	if not px then return end
+	if not wbeep.x or wbeep.walk ~= walk then
+		-- a new walk: a beep straight away, so you know it has started
+		wbeep.x, wbeep.z, wbeep.moved, wbeep.still, wbeep.walk = px, pz, 0, 0, walk
+		walk_beep_sound(walk_beep_pitch(walk_left(px, pz)))
+		wbeep.knock_next = frame + 60
+		return
+	end
+	local d = math.sqrt((px - wbeep.x) ^ 2 + (pz - wbeep.z) ^ 2)
+	wbeep.x, wbeep.z = px, pz
+	if d > 3 then d = 0 end                      -- (put somewhere else: a scene, a door)
+	if d > 0.01 then
+		wbeep.moved = wbeep.moved + d
+		wbeep.still = 0
+	else
+		wbeep.still = wbeep.still + 1
+	end
+	local left = walk_left(px, pz)
+	-- a beep per step covered; closer together for the last few steps
+	local step = left < 4 and 0.5 or 1.0
+	if wbeep.moved >= step then
+		wbeep.moved = 0
+		walk_beep_sound(walk_beep_pitch(left))
+		wbeep.knock_next = frame + 60
+	elseif wbeep.still > 30 and frame >= wbeep.knock_next then
+		-- standing still: a soft low knock, once a second
+		pcall(sound.play, "knock", 0, 0, -1, 0.5 * WALK_BEEP_VOL / 10, 0.6)
+		wbeep.knock_next = frame + 60
+	end
+end
+-- higher the nearer you are: an octave up over the last 20 steps
+function walk_beep_pitch(left)
+	local t = math.max(0, math.min(1, (20 - left) / 20))
+	return 0.8 * (2 ^ t)
 end
 
 ------------------------------------------------------------------------------ mod settings --

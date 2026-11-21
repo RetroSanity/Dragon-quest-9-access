@@ -14,7 +14,7 @@ It reads the game out loud through your screen reader (NVDA, JAWS, Narrator, ZDS
 - Objects named from the game's own words for them: signs and what they say, statues, gravestones, books and more.
 - Auto walk: pick anything in the list and the mod walks you there, round walls and furniture, up stairs and across big fields, with a beep that gets faster as you get close. If a monster stops you, the walk carries on after the battle.
 - 3D beacon: if you'd rather walk yourself, follow a knock placed all round you on headphones (OpenAL Soft with HRTF). It leads you round obstacles, turn by turn. There are spoken step-by-step routes too.
-- Story guide: where to go next in the story, worked out from the game's own story progress, and what opens each locked door where you are. Dungeons with a walkthrough (Brigadoom so far) are read step by step for the part you are in.
+- Story guide: where to go next in the story, worked out from the game's own story progress, and what opens each locked door where you are. Dungeons with a walkthrough (Brigadoom and Tywll Cave so far) are read step by step for the part you are in.
 - Mod settings (at the end of the game's Misc. menu): the volume of each of the mod's sounds, a beacon test and the alerts.
 - Updates itself: it checks for a new version each time the game starts.
 

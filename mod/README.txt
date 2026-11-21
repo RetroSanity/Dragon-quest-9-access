@@ -17,7 +17,7 @@ ROM with its BUILD.bat or its installer (github.com/sackchief/dqix-enhanced). Th
    it is), adds the mod to it, builds the game again (a few minutes) and puts the mod in its
    own folder, "DQ9 access" in your Documents. Your save and settings are not touched.
 3. Run Dragon Quest IX as usual (your shortcut, or dqix.exe in the game folder). After a moment
-   you hear "Dragon Quest 9 access 0.52 for the PC version is running. Press K for keys."
+   you hear "Dragon Quest 9 access 0.53 for the PC version is running. Press K for keys."
 
 You can run "Install DQ9 Access.bat" again at any time (there is a copy in the DQ9 access
 folder): for example after updating the PC version itself, which builds the game again
@@ -282,8 +282,9 @@ CHANGES IN 0.51
   "Ahead" is up on the screen, the way up on the D-pad walks you. A chime at each turn of the way
   and when you arrive. If you wander off the way, it is worked out again from where you are.
   Uses OpenAL Soft (openal_soft.dll, LGPL, licence in openal-licence) with HRTF for headphones.
-- Auto walk beeps while it walks you: faster the nearer you are (along the way), and a chime when
-  you arrive.
+- Auto walk beeps once for every step it actually walks you, higher the nearer you are (along the
+  way), with a soft low knock once a second while you are standing still, and a chime when you
+  arrive.
   The beacon and the beep need the new game part of the mod: run Install DQ9 Access.bat once.
 - The object list names every thing from the game's own words for it, all through the game:
   signs and what they say ("sign: East of here lies Stornway"), statues, gravestones, books,
@@ -459,3 +460,119 @@ need to run the installer again.
   comes again after the next item's name.
 - The Krak Pot, hidden away at the Quester's Rest before Erinn gives it to you, is no longer
   listed as a person "107 steps up, 100 steps left, no way there from here".
+
+CHANGES IN 0.53
+---------------
+This version changes only the mod's own files: it updates itself when the game starts, with no
+need to run the installer again.
+- Big fields: exits were wrongly called "no way there from here" (in Western Stornway: the stairs
+  to Stornway, the Mountain Pass and the Eastern Stornway exits), and auto walk refused to carry
+  on to them after a battle. An exit's box out in a field is big, and its middle is far from
+  where you can stand; now walking up to any side of it counts. Exits really across a cliff (one
+  of the Zere region's exits to Western Stornway) are still marked out of reach.
+- The auto walk beep now tells you that you are really moving: it beeps once for every step you
+  actually cover, so it keeps pace with your walking and goes quiet the moment you stop. It gets
+  higher the nearer you are (an octave up over the last 20 steps) and closer together for the
+  last few steps. While auto walk is on but you are standing still (working out the way, turning,
+  or held up by something), you hear a soft low knock about once a second instead. A walk starts
+  with a beep straight away.
+- The Krak Pot. The Alchenomicon (Use A Recipe) is read across its two columns: "Strong medicine,
+  2 of 16", with the page when there is more than one, and recipes you have not found yet as "not
+  found yet". Each recipe says what it needs and how many you have: "Needs 2 medicinal herb, you
+  have 7. You can make it."
+- Try Your Luck: each ingredient says how many you have and where it is in the list ("Slimedrop,
+  you have 3, 3 of 8, page 1 of 3"). Before, the position was counted wrongly (out of 24, mixed in
+  with the Alchenomicon's hidden list), the count was not read, and short lists counted rows not
+  on screen. "How many?" is read, and changes as you press up and down, without listing every
+  category and item as "Held". After you add something, the mod says what is in the pot ("In the
+  pot: slimedrop 2, coagulant 3."), and "The pot is empty." when it is emptied. The right stick
+  press (R3, or the gold key) says what is in the pot too while you are choosing.
+- A question that comes up together with a list (the Krak Pot's "So, how will you be conducting
+  your alchemy, hm?" with Use A Recipe under it, "How many of those would you like to throw into
+  the mix?") is said once, then the list, instead of the question, the list and the question
+  again. A question that is also written in the message box is no longer read twice.
+- When an item's description lags behind the cursor, the last item's description is no longer
+  read after the new item.
+- Innkeepers and shopkeepers who have to be talked to from in front of their counter, such as the
+  old woman who runs Coffinwell's inn: auto walk, the beacon and the route now take you to the
+  front of the counter and face you to them. Before, auto walk took you round behind her, and
+  from there she only talks about the disease instead of offering a room. The mod now carries
+  the game's own list of where each of these people is talked to from, for every map.
+- Auto walk to a monster walks right into it and keeps after it if it runs away, until the
+  battle starts. Before, a monster standing near a table or wall was walked to "across the
+  counter" and the walk stopped a step short, so you never touched it; metal slimes, which run
+  from you, could not be caught at all. If one still gets away after a few seconds of chasing,
+  the mod says so: come at it from behind, or between it and a wall.
+- Battles: picking a target no longer says "3 of 2" or "Lost soul times 1" when one group of
+  monsters has gone. The place in a list is counted among the lines that are there.
+- The Quarantomb's two sage statues are called "statue of the sage, with a button on its wand"
+  instead of something that says "There appears to be a button on the wand".
+- Auto walk starts moving at once. When nothing is in the way it walks straight there without
+  waiting for a route to be worked out; before, it could stand still for a second or more first,
+  long enough for a metal slime to get away. A monster or person on the move is chased straight
+  at, and if they go round a corner the old route is kept while the new one is worked out,
+  instead of stopping to think every time they move.
+- After a battle with a monster you walked into, the walk no longer starts again towards it.
+- Things you work, such as the Quarantomb's sage statues with a button on the wand, and levers
+  and switches, are in the Items list instead of Objects.
+- The way from the Quarantomb's shrine into the tomb is called "exit inside, to Quarantomb"
+  instead of "exit to Interior -".
+- A boss waiting for you to talk to it (the Ragin' Contagion in the Quarantomb) is in the People
+  list, with its name: "Ragin' Contagion, boss. Talk to it to fight". Before, it was not on any
+  list.
+- Going through a door that does not lead to another map (the Quarantomb's gate) now tells you
+  what is on the other side: "Through door. In here: jar, stairs to basement."
+- Story guide: after the Ragin' Contagion it tells you what to do back in Coffinwell (the Mayor,
+  Catarrhina, the night, the graveyard, Dr Phlegming's sick people) instead of jumping ahead to
+  the Observatory.
+- Things you press A on from a spot the game marks (the Starflight Express's control panel, the
+  Quarantomb's statues and mirrors) are walked to that spot, facing them, so A works. Before,
+  auto walk stopped a step too far back from the control panel and A did nothing, so the train
+  could not be made to leave the Mountain Pass.
+- The Starflight Express's control panel and carriage door have names ("control panel",
+  "carriage door"), and the control panel is in the Items list.
+- Auto walk to someone across a counter (the royal guard in Alltrades Abbey) no longer walks on
+  the spot for ever when a follower or a bit of furniture keeps you just short: a second without
+  getting closer, within a step, counts as there, and you are turned to face them. A box the game
+  draws round a person themselves is no longer mistaken for the far side of a counter.
+- After a battle, the walk waits for the experience and gold messages to finish before it starts
+  again, so the button you press to clear them no longer stops it straight away. A walk that gave
+  up with "As close as you can get" just as a battle started carries on after the battle.
+- The spot where the Starflight Express lands you on a field is called "Starflight Express
+  landing spot" instead of something that says "s companions come into view".
+- After a battle where someone levels up, an auto walk no longer starts again over the skill
+  points screen (its presses could have moved your points about). Start it again yourself when
+  you are done.
+- The same words are no longer read twice in a row when nothing was pressed in between (the
+  priest's question at Porth Llaffan's church).
+- Shopkeepers whose place in the game's files is written a different way (Porth Llaffan's
+  weapon and armour shop and item shop, and about 90 other people in all) are now walked to from
+  the front of their counter too. From behind, Porth Llaffan's weapon seller only says he is
+  shutting up shop and never opens it.
+- Items menu: moving between people in Everyday Items no longer reads the last thing in their
+  list as if you were on it ("Angel bell, 8 of 8") and then the person again. Choosing who to
+  transfer something to says how much they carry ("bish, 4 of 5, carrying 2 of 8", or "hands
+  full"). The bag says which page you are on when it changes ("page 2 of 3").
+- An exit far below or above where you stand, more than a flight of steps, is marked out of reach
+  and "lower down" or "higher up" (outside Tywll Cave's upper floor, the cave mouth under the
+  ledge was read as "right next to you" and auto walk went round in circles). The Exits list says
+  "out of reach from here" for these instead of "in other rooms".
+- A step-by-step walkthrough for Tywll Cave and Cuddiedig Cliff, on the story guide button (left
+  trigger and Back, or Y on the keyboard): each part of the cave, where its chests are, which
+  exit is the way on, and how to fight Lleviathan.
+- Tywll Cave's exits name their floor: "exit to the 1st floor", "exit to the 1st floor, part 2",
+  instead of "exit inside, to Tywll Cave" for all of them. An exit you reach down a flight of
+  steps ("stairs down to the 1st floor") is not marked out of reach because it is lower down.
+- Tywll Cave's exits have names that say which one is which: "west cave mouth on the ledge, to
+  the 2nd floor and on to Lleviathan", "east cave mouth on the ledge, to a side part of the 2nd
+  floor", "cave mouth under the ledge, into the 1st floor", "opening into a side cave, north",
+  "exit outside, to the east end of the ledge", "stairs down to the far side of the cave, the way
+  on", and so on, instead of three exits all called "exit outside".
+- The Tywll Cave walkthrough uses those names, and knows where you are: on the high ledge or
+  down on the shore, and which of the 2nd floor's two parts you are in (the side part that does
+  not lead on, or the part that does).
+- A boss is called "Lleviathan, the boss", and auto walk to one is no longer sent "across the
+  counter" to a spot it cannot reach: it stops a few steps away (bosses are big) so you can talk
+  to it.
+- After you use an item on someone, the windows closing one after another no longer read the
+  menus again ("To who? lebon", "Everyday Items. retro", "To who? lebon"...).
