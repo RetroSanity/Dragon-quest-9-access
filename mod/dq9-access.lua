@@ -48,9 +48,14 @@
 -- Anything read from memory is checked before it is spoken; a check that fails stays silent.
 
 ------------------------------------------------------------------------------ settings ------
-MOD_VERSION = "0.53"
+MOD_VERSION = "0.54"
 MENU_DEBUG = false   -- true: log the menu buffer and look for the yes/no box in snapshots
 WALK_DEBUG = false   -- true: log auto walk's route and position (in the speech log)
+-- (what the mod last pressed for you, for that log)
+if joypad and joypad.set and not JOYPAD_SET_REAL then
+	JOYPAD_SET_REAL = joypad.set
+	joypad.set = function(t) LAST_PAD = t return JOYPAD_SET_REAL(t) end
+end
 KEYS = {
 	repeat_last = "R", stop = "", where = "W", party = "H", gold = "G", info = "I",
 	options = "O", next_thing = "N", prev_thing = "B", directions = "D", mark = "M", mp = "M",
@@ -345,6 +350,10 @@ function mon_label_list(items, m)
 		for i = 1, n do local c = MON_LETTERS:sub(i, i) if not mon.dead[kind .. "|" .. c] then l[#l + 1] = c end end
 		standing[kind] = l
 	end
+	-- (each monster's place among all of them, for reading one at a time: "Chimaera B, 2 of 3")
+	local all, before = 0, {}
+	for gi, g in ipairs(groups) do before[gi] = all all = all + g.n end
+	for gi, g in ipairs(groups) do g.it.mfirst, g.it.mtotal, g.it.mcount = before[gi], all, g.n end
 	for _, g in ipairs(groups) do
 		if (mon.total[g.kind] or 0) > 1 then
 			local take = {}
@@ -354,7 +363,22 @@ function mon_label_list(items, m)
 		elseif g.n == 1 then
 			g.it.text = g.name
 		end
+		g.it.mname = g.it.mname or g.name
 	end
+end
+-- One monster of the target list, on its own: the one the arrow is on in a group, with its place
+-- among all the monsters. Read instead of the whole group ("Chimaera A and B").
+function mon_one_text(it)
+	if not it or not it.mtotal then return nil end
+	local sub = 0
+	if it.letters and #it.letters > 1 then
+		sub = mainmemory.read_u32_le(TARGET_SUB - 0x02000000)
+		if sub >= #it.letters then sub = 0 end
+	end
+	local name = it.mname or it.text
+	if it.letters and it.letters[sub + 1] then name = name .. " " .. it.letters[sub + 1] end
+	if it.mtotal > 1 then return name .. ", " .. (it.mfirst + sub + 1) .. " of " .. it.mtotal end
+	return name
 end
 
 -- Picking which one of a group to attack (left and right move the arrow between "Slime A" and
@@ -394,7 +418,10 @@ function watch_target_sub(items, cursor, raw)
 	if sub ~= tgt_watch.sub then
 		tgt_watch.sub = sub
 		local l = it.letters[sub + 1]
-		if l then say(it.mname .. " " .. l, true) end
+		if l then
+			local pos = it.mtotal and it.mtotal > 1 and (", " .. (it.mfirst + sub + 1) .. " of " .. it.mtotal) or ""
+			say(it.mname .. " " .. l .. pos, true)
+		end
 	end
 end
 -- menu state lives here because the message reader resets it
@@ -876,6 +903,81 @@ function is_layout_label(t)
 	end
 	return false
 end
+-- Party tricks (Misc. > Assign Party Tricks): B with a direction on the D-pad does the tricks set
+-- for it. The game keeps them at 0x020F8A69, 7 trick numbers (0 or 255 for none) in the order
+-- up, left, right, down, then the 2nd to 4th tricks of down (down can do up to 4 in a row).
+-- The screen lists them as up, right, left, down and down's next three.
+TRICK_ADDR = 0x020F8A69
+TRICK_NAMES = { "Bow", "Clap", "Air Punch", "Bye Bye", "Weep", "Despair", "Tantrum", "Surprised", "Jump",
+	"Sit", "Recline", "Hello!", "Thanks!", "Goodbye!", "Eek!", "Hmm...", "Pray", "Dive", "Pirouette",
+	"Belly Dance", "Royal Regards", "Swinedimples Salute", "Cap'n's Curtsy", "Sultry Dance", "Weird Dance",
+	"Wallop", "Cheer", "Provoke", "Salute", "Inspiration", "Professor's Pose" }
+TRICK_SET = {}
+for _, n in ipairs(TRICK_NAMES) do TRICK_SET[n] = true end
+TRICK_ROWS = { [0] = "B and up", "B and right", "B and left", "B and down",
+	"B and down, 2nd trick", "B and down, 3rd trick", "B and down, 4th trick" }
+TRICK_SLOT = { up = { 0 }, left = { 1 }, right = { 2 }, down = { 3, 4, 5, 6 } }
+function trick_list(dir)
+	local t = {}
+	for _, i in ipairs(TRICK_SLOT[dir] or {}) do
+		local v = u8(TRICK_ADDR + i)
+		if v >= 1 and v <= #TRICK_NAMES then t[#t + 1] = TRICK_NAMES[v] end
+	end
+	return t
+end
+function trick_summary()
+	local t = {}
+	for _, d in ipairs({ "up", "right", "left", "down" }) do
+		local l = trick_list(d)
+		t[#t + 1] = d .. ", " .. (#l > 0 and table.concat(l, ", then ") or "nothing")
+	end
+	return "B with the D-pad: " .. table.concat(t, ". ") .. "."
+end
+-- the screen and its list of tricks: say which button each row is, and what the dashes and
+-- question marks mean
+function trick_labels(items, m, count)
+	if m:find("Assign Party Tricks", 1, true) and m:find(">Confirm</N>", 1, true) then
+		for i = 0, 6 do
+			local it = items[i]
+			if it then it.text = TRICK_ROWS[i] .. ": " .. (it.text == "none" and "empty" or it.text) end
+		end
+		TRICK_SCREEN_FRAME = frame
+		return "screen"
+	end
+	-- the list of tricks to pick from (two columns, two pages; the last one clears the row)
+	local n, known = 0, 0
+	for i = 0, 40 do
+		local it = items[i]
+		if it then
+			n = n + 1
+			if TRICK_SET[it.text] or it.text == "??????" then known = known + 1 end
+		end
+	end
+	if n >= 8 and known >= n - 1 and TRICK_SCREEN_FRAME and frame - TRICK_SCREEN_FRAME < 18000 then
+		for i = 0, 40 do
+			local it = items[i]
+			if it and it.text == "??????" then it.text = "not learned yet"
+			elseif it and it.text == "none" then it.text = "nothing, clears the row" end
+		end
+		return "list"
+	end
+end
+-- out in the world: B held and a direction pressed does the tricks; say which
+trick_prev = {}
+function watch_tricks(pad)
+	local prev = trick_prev
+	trick_prev = pad
+	if not pad.b or in_battle() or u8(0x02109DA4) ~= 1 or frame - last_dialogue_frame < 20 then return end
+	for _, d in ipairs({ "up", "down", "left", "right" }) do
+		if pad[d] and not prev[d] then
+			local l = trick_list(d)
+			if #l > 0 then say(table.concat(l, ", then "), true)
+			else say("No party trick on B and " .. d .. ". Set them in Misc., Assign Party Tricks.", true) end
+			return
+		end
+	end
+end
+
 local function read_menu()
 	-- a window's sentence (a spell's description) waits a moment: the list item it goes with is
 	-- often read in the next frames, and the description should come after it, once
@@ -888,12 +990,32 @@ local function read_menu()
 		-- (the last item's description, still in its box as the cursor moves down a list)
 		local stale = LAYOUT_MOVE and ((t == LAYOUT_MOVE.prev and frame - LAYOUT_MOVE.at < 40)
 			or (LAYOUT_MOVE.desc and ITEM_DESC_SET and ITEM_DESC_SET[t] and t ~= LAYOUT_MOVE.desc and frame - LAYOUT_MOVE.at < 300))
-		if t ~= last_said and current and not recent and not stale then queue(t) LAST_PLAIN_T = t end
+		if t ~= last_said and current and not recent and not stale then queue(t) LAST_PLAIN_T, LAST_PLAIN_F = t, frame end
+	end
+	-- The spell list (Spells & Abilities): moving the cursor redraws the list for a single frame,
+	-- then the spell's description and an "MP Required" window take the buffer over. The list
+	-- is the one already read, with only the cursor moved: read it once the MP window comes (or
+	-- a few frames on), with what the spell costs and how much MP the caster has.
+	local force = nil
+	if LAST_CURSOR_M then
+		local cur = cstring(MENU, 2400)
+		local mpc, mph = cur:match("MP Required:.-<XR=%d+>(%d+)</XR><XR=%d+>(%d+)</XR>")
+		if mpc then MP_REQ = { cost = tonumber(mpc), have = tonumber(mph), frame = frame } end
+		if LAST_CURSOR_M == menu_raw_done or frame - LAST_CURSOR_F > 8 or cur == LAST_CURSOR_M then
+			LAST_CURSOR_M = nil
+		elseif (mpc or frame - LAST_CURSOR_F >= 5) and LAST_CURSOR_M:gsub("<CURSOR=%-?%d+>", "") == menu_sig then
+			force, LAST_CURSOR_M = LAST_CURSOR_M, nil
+		end
 	end
 	local head = menu_fingerprint()
-	if head == menu_head and menu_seen_count > 1 then return end
+	if not force and head == menu_head and menu_seen_count > 1 then return end
 	menu_head = head
 	local m = cstring(MENU, 2400)
+	do
+		local mpc, mph = m:match("MP Required:.-<XR=%d+>(%d+)</XR><XR=%d+>(%d+)</XR>")
+		if mpc then MP_REQ = { cost = tonumber(mpc), have = tonumber(mph), frame = frame } end
+	end
+	if force then m, menu_raw_seen, menu_seen_count, menu_head = force, force, 0, nil end
 	local has_cursor = m:find("<CURSOR=", 1, true) ~= nil
 	-- A menu is only trusted once it has stayed the same for two frames: the game sometimes
 	-- writes a half-built list into this buffer for a single frame.
@@ -907,7 +1029,7 @@ local function read_menu()
 		menu_hist[m] = frame
 		menu_raw_seen, menu_seen_count = m, 0
 		last_menu_frame = frame
-		if has_cursor then menu_cursor_frame = frame end
+		if has_cursor then menu_cursor_frame = frame LAST_CURSOR_M, LAST_CURSOR_F = m, frame end
 		if read_creation(m) then return end
 		-- the HP (and MP) of the one picked in "To who?"
 		if not has_cursor and menu_title == "To who?" then
@@ -1005,6 +1127,8 @@ local function read_menu()
 	-- the Misc. menu has one more item, the mod's own settings, after the last (misc_step)
 	if joypad.getraw and m:find("^<CURSOR=%d+>Misc%.") then count = count + 1 end
 	pcall(mon_label_list, items, m)
+	local tok, tkind = pcall(trick_labels, items, m, count)
+	if not tok then tkind = nil end
 	-- The little Equip / Move / Discard / Cancel list on the equipment screen. Its text stays in
 	-- this buffer afterwards, and the list of who to equip moves the old cursor through it.
 	if items[0] and items[0].text == "Equip" and items[2] and items[2].text == "Discard" then
@@ -1055,6 +1179,24 @@ local function read_menu()
 	end
 	menu_sig, menu_cursor, menu_items, menu_title = sig, cursor, items, title
 	local text = describe_item(it, cursor, count, items)
+	-- a spell out in the world: what it costs, from the game's "MP Required" window
+	if MP_REQ and frame - MP_REQ.frame <= 12 and not in_battle() and not title then
+		local c, h = MP_REQ.cost, MP_REQ.have
+		local mp = c == 0 and "no MP needed" or (c .. " MP, you have " .. h .. (h < c and ", not enough" or ""))
+		text = text:gsub("^(.-), %d+ MP", "%1", 1):gsub("^([^,]+)", function(n) return n .. ", " .. mp end, 1)
+	end
+	-- party tricks: say the screen's name on arriving, and which row a trick is being picked for
+	if tkind ~= TRICK_KIND then
+		if tkind == "screen" and TRICK_KIND ~= "list" then text = "Assign Party Tricks. B with the D-pad does them; down can do up to 4 in a row. " .. text
+		elseif tkind == "list" and TRICK_ROW and TRICK_ROWS[TRICK_ROW] then text = "Pick a trick for " .. TRICK_ROWS[TRICK_ROW] .. ". " .. text end
+	end
+	TRICK_KIND = tkind
+	if tkind == "screen" then TRICK_ROW = cursor end
+	-- picking a monster to attack: the one the arrow is on, not the whole group
+	if in_battle() and it.mtotal then
+		local ok, one = pcall(mon_one_text, it)
+		if ok and one then text = one end
+	end
 	-- the bag's pages: which page of how many, when that changes (the game shows "2/3")
 	do
 		local ok, pg, pgs = pcall(bag_page, items)
@@ -1121,6 +1263,16 @@ local function read_menu()
 		local seen = MENU_RECENT[text]
 		MENU_RECENT[text] = frame
 		if seen and frame - seen < 240 and USER_INPUT_FRAME < (last_menu_spoken_prev or -1000) then return end
+		-- (the spell list draws its first spell's description before the list itself: the
+		-- spell first, then its description again)
+		if LAST_PLAIN_F and frame - LAST_PLAIN_F < 20 and (not dsc or clean_text_g(dsc) == LAST_PLAIN_T) and not title and MP_REQ and frame - MP_REQ.frame <= 12 then
+			-- (the description is already being said by itself: cut it, so the spell comes first)
+			stop_speech()
+			say_queued_text, say_last_queued = nil, nil
+			say(text, true)
+			queue(LAST_PLAIN_T)
+			return
+		end
 		-- A menu that opens together with a question waits for the question to be read.
 		if frame - last_dialogue_frame < 150 then queue(text) else say(text, true) end
 		if dsc then queue(dsc) end
@@ -1180,13 +1332,17 @@ local yesno_obj = 0x0239CA5C
 local yesno_visible, yesno_choice, yesno_search_frame = false, -1, -1000
 PLAYER_PTR = 0x020F33E0
 
-local function find_yesno()
+function set_yesno_obj_g(a) yesno_obj = a end
+local function find_yesno(force)
 	-- The yes/no box lives in the field menu heap. It is normally at the same place, but if a
 	-- different map moves it, look for it again (it is recognised by its class pointer).
-	if u32(yesno_obj) == YESNO_VTABLE then return true end
+	-- (there can be two: Quick Save's sits further up. Once one was found, the other one, the
+	-- one showing, was never looked at again, and the church's questions went unsaid)
+	if u32(yesno_obj) == YESNO_VTABLE and not force then return true end
 	-- one look per message is enough (the search reads a lot of memory)
-	if yesno_search_frame == (msg_serial or 0) then return false end
-	yesno_search_frame = msg_serial or 0
+	-- (again half a second on: the box is put up a moment after its question)
+	if yesno_search_frame == (msg_serial or 0) and frame - (yesno_search_at or -1000) < 30 then return u32(yesno_obj) == YESNO_VTABLE end
+	yesno_search_frame, yesno_search_at = msg_serial or 0, frame
 	-- the field heap, and further up where the field menu keeps it (Quick Save's question:
 	-- seen at 023B19C8 on the PC version)
 	local found = nil
@@ -1212,6 +1368,11 @@ local function read_yesno()
 	local menu_yesno = menu_raw_seen:find("<CURSOR=", 1, true) and menu_raw_seen:find("<N=0>Yes</N>", 1, true) and menu_raw_seen:find("<N=1>No</N>", 1, true)
 	if menu_yesno then yesno_menu_frame = frame end
 	local visible = false
+	-- a question up and the box we know of not showing: look for the one that is (once a message)
+	if u32(yesno_obj) == YESNO_VTABLE and u8(yesno_obj + 0x28) ~= 1
+		and (dlg_last_raw:find("\4\255", 1, true) or dlg_last_raw:find("\10\255", 1, true) or clean_text_g(dlg_last_raw):find("?", 1, true)) then
+		find_yesno(true)
+	end
 	if u32(yesno_obj) == YESNO_VTABLE or (dlg_last_raw:find("\10\255", 1, true) and find_yesno()) then
 		visible = u8(yesno_obj + 0x28) == 1
 		-- the box stays marked as showing after a menu's question: a message that asks nothing
@@ -1516,11 +1677,11 @@ MAPIDS = {
 	[1311]={"M03M11","Scholar's House"}, [1312]={"M03M12","Scholar's Study"}, [1313]={"M03M13"},
 	[1500]={"M05","Porth Llaffan"}, [1501]={"M05M01"}, [1502]={"M05M02"}, [1503]={"M05M03"},
 	[1504]={"M05M04"}, [1505]={"M05M05","Mayor's House"}, [1506]={"M05M06"}, [1700]={"M07","Zere Rocks"},
-	[1701]={"M07M01"}, [1705]={"M07M05"}, [1706]={"M07M06","Petra's House B1"},
+	[1701]={"M07M01","north east house"}, [1705]={"M07M05","room by the stone tree"}, [1706]={"M07M06","cellar"},
 	[1800]={"M08","Dourbridge"}, [1801]={"M08M01"}, [1802]={"M08M02"}, [1803]={"M08M03","Mason's House"},
 	[1804]={"M08M04","Bar on Left Under Bridge"}, [1805]={"M08M05","Item shop on Right Under Bridge"},
 	[1806]={"M08M06"}, [1807]={"M08M07","Cap'n Meddlin's 'Castle'"},
-	[1808]={"M08M08","Basement on Right Under Bridge"}, [1900]={"M09","Basement on Right Under Bridge"},
+	[1808]={"M08M08","Basement on Right Under Bridge"}, [1900]={"M09","Bloomingdale"},
 	[1901]={"M09M01"}, [1902]={"M09M02","Workshop"}, [1903]={"M09M03"},
 	[1904]={"M09M04","Marion's House"}, [1905]={"M09M05","Marion's House Lv 2"},
 	[1906]={"M09M06","Marion's House garden"}, [1907]={"M09M07","Terrace House"},
@@ -1585,11 +1746,11 @@ MAPIDS = {
 	[7401]={"D04M01","Inside the Shrine"}, [7402]={"D04M02","Interior -"}, [7403]={"D04M03"},
 	[7601]={"D06M01","Exterior 01"}, [7602]={"D06M02","Interior - Lv 1-01"},
 	[7603]={"D06M03","Interior - Lv 1-02"}, [7604]={"D06M04","Interior - Lv 2"}, [7605]={"D06M05","Exterior 02"},
-	[7700]={"D07","Heights of Loneliness"}, [7701]={"D07M01","Heights of Loneliness 2"},
-	[7702]={"D07M02","Heights of Loneliness 3"}, [7703]={"D07M03","Heights of Loneliness 4"},
-	[7704]={"D07M04","Heights of Loneliness 5"}, [7705]={"D07M05","Heights of Loneliness 6"},
-	[7706]={"D07M06","Heights of Loneliness 7"}, [7707]={"D07M07","Heights of Loneliness 8"},
-	[7708]={"D07M08","Heights of Loneliness 9"}, [7709]={"D07M09","Heights of Loneliness 10"},
+	[7700]={"D07","Heights of Loneliness"}, [7701]={"D07M01","Heights of Loneliness - Lv 1"},
+	[7702]={"D07M02","Heights of Loneliness - Lv 2"}, [7703]={"D07M03","Heights of Loneliness - Lv 3"},
+	[7704]={"D07M04","Heights of Loneliness - Lv 4"}, [7705]={"D07M05","Heights of Loneliness - Lv 5"},
+	[7706]={"D07M06","Heights of Loneliness - Lv 6"}, [7707]={"D07M07","Heights of Loneliness - Lv 7"},
+	[7708]={"D07M08","Heights of Loneliness, ladder room off floor 1"}, [7709]={"D07M09","Heights of Loneliness, outside"},
 	[7802]={"D08M02","Interior - B1-A"}, [7803]={"D08M03","Interior - B1-B"},
 	[7804]={"D08M04","Interior - B1 Room"}, [7805]={"D08M05","Interior - B2"}, [7806]={"D08M06","Interior - B3"},
 	[7807]={"D08M07","Interior - B1 Dungeon"}, [7808]={"D08M08","Interior - B2 Graves"},
@@ -1609,9 +1770,10 @@ MAPIDS = {
 	[8611]={"D16M11","Interior - Lv 7"}, [8612]={"D16M12"}, [8613]={"D16M13","Interior - Summit Interior"},
 	[8701]={"D17M01"}, [8702]={"D17M02","Oubliette - B3"}, [8703]={"D17M03","B3"}, [8704]={"D17M04","B4"},
 	[8705]={"D17M05","B5"}, [8706]={"D17M06","B6"}, [8707]={"D17M07"}, [9000]={"T01","Tower of Trades"},
-	[9001]={"T01M01"}, [9002]={"T01M02","Tower of Trades - Lv 3"},
-	[9003]={"T01M03","Tower of Trades - Lv 4"}, [9004]={"T01M04","Tower of Trades - Lv 5"},
-	[9005]={"T01M05","Lv 5"}, [9006]={"T01M06","Lv 6"}, [9007]={"T01M07","Lv 7"},
+	-- (the game's map list gives each floor's full name before its code: these were one floor off)
+	[9001]={"T01M01","Tower of Trades - Lv 1"}, [9002]={"T01M02","Tower of Trades - Lv 2"},
+	[9003]={"T01M03","Tower of Trades - Lv 3"}, [9004]={"T01M04","Tower of Trades - Lv 4"},
+	[9005]={"T01M05","Tower of Trades - Lv 5"}, [9006]={"T01M06","Tower of Trades - Lv 6"}, [9007]={"T01M07","Tower of Trades - Lv 7"},
 	[9008]={"T01M08","Ceremonial Chamber"}, [9100]={"T02","Tower of Nod"}, [9101]={"T02M01"},
 	[9102]={"T02M02","Tower of Nod - Lv 3"}, [9103]={"T02M03","Tower of Nod - Lv 4"},
 	[9104]={"T02M04","Tower of Nod - Lv 5"}, [9105]={"T02M05"}, [9106]={"T02M06","Lv 5 Exterior"},
@@ -1628,7 +1790,7 @@ MAPIDS = {
 	[20002]={"F02","Western Stornway Region"}, [20003]={"F03"}, [20004]={"F04","Doomingale Forest"},
 	[20005]={"F05","Eastern Coffinwell Region"}, [20006]={"F06","Western Coffinwell Region"},
 	[20007]={"F07","Newid Isle"}, [20008]={"F08"}, [20009]={"F09","Slurry Coast"},
-	[20010]={"F10","Bloomingdale"}, [20011]={"F11","Dourbridge Region"}, [20012]={"F12","Lonely Plains"},
+	[20010]={"F10","fields round Bloomingdale"}, [20011]={"F11","Dourbridge Region"}, [20012]={"F12","Lonely Plains"},
 	[20013]={"F13"}, [20014]={"F14"}, [20015]={"F15","Djust Desert"}, [20016]={"F16","Hermany"},
 	[20017]={"F17","Pluvi Isle"}, [20018]={"F18","Snowberia"}, [20019]={"F19","Cringle Coast"},
 	[20020]={"F20","Urdus Marshland"}, [20021]={"F21","Iluugazar Plains"}, [20022]={"F22","Mt Ulzuun"},
@@ -1760,7 +1922,7 @@ AREAS = {
 	C01="Stornway", C02="Gleeba", C04="Gittingham Palace", D01="The Hexagon", D04="Quarantomb",
 	D07="Heights of Loneliness", D09="The Bad Cave", D14="The Bowhole", F02="Western Stornway Region",
 	F04="Doomingale Forest", F05="Eastern Coffinwell Region", F06="Western Coffinwell Region", F07="Newid Isle",
-	F09="Slurry Coast", F10="Bloomingdale", F11="Dourbridge Region", F12="Lonely Plains", F15="Djust Desert",
+	F09="Slurry Coast", F10="fields round Bloomingdale", F11="Dourbridge Region", F12="Lonely Plains", F15="Djust Desert",
 	F16="Hermany", F17="Pluvi Isle", F18="Snowberia", F19="Cringle Coast", F20="Urdus Marshland",
 	F21="Iluugazar Plains", F22="Mt Ulzuun", F23="Mt Ulbaruun", F24="Khaalag Coast", F25="Ondor Cliffs",
 	F26="Eastern Wormwood Region", F27="Western Wormwood Region", F28="Wormwood Canyon", F29="Wyrmtail Region",
@@ -1772,7 +1934,7 @@ AREAS = {
 	H13="Brian's Cave", H14="Sealed Well", H15="Doris's House", H16="Monster Research Institute",
 	H17="Eastern Wormwood", H18="Mountaintop Well - South", H19="Western Wormwood", H20="Wyrmtail",
 	M01="Angel Falls", M02="Zere", M03="Coffinwell", M05="Porth Llaffan", M07="Zere Rocks", M08="Dourbridge",
-	M09="Basement on Right Under Bridge", M10="Batsureg", M11="Swinedimples Academy", M12="Wormwood Creek",
+	M09="Bloomingdale", M10="Batsureg", M11="Swinedimples Academy", M12="Wormwood Creek",
 	M13="Upover", O00="Ocean", S02="Loch Storn", S03="Eastern Checkpoint", S04="Hexagon Hill",
 	S05="Cuddiedig Cliff", S06="Hunters' Yurts", S07="Gortress", S08="Slurry Quay", S09="Ship - Deck",
 	S10="Mountain Hut", S11="Ulbaruun Cave", S12="Bloomingdale Region", S15="Wyrmward", T01="Tower of Trades",
@@ -2398,7 +2560,8 @@ local function map_code()
 end
 local function map_name()
 	local n = cstring(MAPNAME, 40)
-	if printable(n) then return clean(n) end
+	-- ("Tower of Trades -???": the room the game has no name for yet)
+	if printable(n) then return (clean(n):gsub("%s*%-%s*%?+$", "")) end
 	return nil
 end
 
@@ -2414,6 +2577,20 @@ local function screen_axes()
 	if not px then return 0, -1, 1, 0 end
 	local cx, cz = s32(CAMERA) / 4096, s32(CAMERA + 8) / 4096
 	local ux, uz = px - cx, pz - cz
+	-- (the point the camera looks at, kept just before it: the way the camera faces. The camera
+	-- trails behind you and is held back at the edges of a place, so the line from it to you
+	-- can be well off the way it looks, and the D-pad goes by the way it looks)
+	local tx, tz = s32(CAMERA - 0x48) / 4096, s32(CAMERA - 0x40) / 4096
+	if (tx - px) ^ 2 + (tz - pz) ^ 2 < 25 and (tx - cx) ^ 2 + (tz - cz) ^ 2 > 1 then ux, uz = tx - cx, tz - cz end
+	-- (and the D-pad goes by the way the place is laid out, not by the camera swinging after
+	-- you: in Dourbridge, held up and right walks 45 degrees across the map whichever way the
+	-- camera has swung. So the nearest quarter turn: up is north on every map seen so far)
+	do
+		local a = (math.atan2 or math.atan)(ux, -uz)
+		local q = math.floor(a / (math.pi / 2) + 0.5) * (math.pi / 2)
+		ux, uz = math.sin(q), -math.cos(q)
+		return ux, uz, -uz, ux
+	end
 	local len = math.sqrt(ux * ux + uz * uz)
 	if len < 0.01 then return 0, -1, 1, 0 end
 	ux, uz = ux / len, uz / len
@@ -2463,11 +2640,38 @@ EXIT_NAMES = { [4107] = "stairs up to the Great Hall",       -- Observatory leve
 EXIT_NAMES_AT = {
 	["X01M01|4103"] = "Stairs to tree 1",      -- Observatory level 1-2 outside: the stairs up to level 3 (Exterior 3)
 	["X01M02|4104"] = "Stairs to tree 2",      -- Observatory level 3 outside (map X01M02): the stairs up to Exterior 4
+	["M08M05|1808"] = "stairs down to the secret shop, in the item shop's shut-off back room (the shop's upper door outside, with the Ultimate Key)",
 }
+-- names for one door in one place, as for exits above
+DOOR_LABELS_AT = { ["T01|9001"] = "tower door, it opens with the Bow party trick",
+	-- Dourbridge's item shop: its back room, with the door up to the bridge and the stairs down to
+	-- the secret shop, is shut off from the shop; it is reached by the upper door outside, which
+	-- the Ultimate Key opens
+	["M08M05|1800"] = "door up to the bridge, in the shop's shut-off back room; that is reached by the shop's upper door outside, which opens with the Ultimate Key" }
 -- names for exits told apart by where they are, for maps with several exits that the game's
 -- names cannot tell apart ("exit outside" three times on Tywll Cave's 2nd floor):
 -- map code (first 6 letters) -> { x, z, name }, the nearest within 3 steps
 EXIT_NAMES_XY = {
+	M07 = { { 14.2, -16.65, "door to the north east house, where the slime is" },
+	        { 16.8, -16.7, "stairs down to the cellar, beside the north east house" },
+	        { 0.5, -1.56, "doorway by the big stone tree" },
+	        { -2.0, 22.5, "way back down to the Heights of Loneliness" } },
+	M07M01 = { { 0.92, 7.73, "door out to Zere Rocks" } },
+	M07M05 = { { 6.85, 8.17, "way out to Zere Rocks" } },
+	M07M06 = { { 2.0, 4.6, "stairs up to Zere Rocks" } },
+	D07 = { { 0.0, -23.7, "cave entrance, north, into floor 1" }, { 0.0, 5.0, "way back south, to the Mountain Hut" } },
+	D07M01 = { { 0.0, 15.0, "way out, south, back outside" }, { 0.5, -19.0, "way on, north, up to floor 2" } },
+	D07M02 = { { 3.5, 33.0, "way back down to floor 1, south" }, { -14.5, 7.0, "vine up to floor 3" } },
+	D07M03 = { { 0.8, -9.1, "first hole, into a cave, to the kitty litter chest" },
+	           { -18.3, -7.8, "hole by the kitty litter chest, back into the cave" },
+	           { -5.1, -19.25, "door at the end of the long vine, on to floor 6" },
+	           { 4.15, 2.33, "vine down to floor 2" } },
+	D07M04 = { { 6.0, 22.0, "way back out to floor 3" }, { -17.0, -6.0, "way on, west, through the cave" } },
+	D07M05 = { { -1.0, 9.0, "way out to the ledge with the kitty litter chest" }, { 8.0, -7.0, "way back east, through the cave" } },
+	D07M06 = { { 4.0, 9.0, "way back to floor 3" }, { -16.3, -6.8, "way on, west up the stairs, to floor 7" } },
+	D07M07 = { { 15.5, -17.0, "way back to floor 6" }, { -8.0, 21.0, "way on, south, outside" } },
+	D07M08 = { { 5.5, 0.0, "way back to floor 1" } },
+	D07M09 = { { -6.5, -3.4, "way back in, to floor 7" }, { 4.15, -11.7, "stairs up to Zere Rocks" } },
 	D06M01 = { { -4.0, -6.7, "cave mouth under the ledge, into the 1st floor" },
 	           { -21.0, -11.8, "stairs down to the cave mouth, into the 1st floor" },
 	           { -22.6, -15.7, "west cave mouth on the ledge, to the 2nd floor and on to Lleviathan" },
@@ -2482,10 +2686,35 @@ EXIT_NAMES_XY = {
 	           { 22.1, -11.4, "stairs down to the far side of the cave, the way on" } },
 	D06M05 = { { 11.7, 32.7, "exit back into the 2nd floor" },
 	           { 5.5, -24.3, "stairs up to Cuddiedig Cliff, where Lleviathan is" } },
+	-- the Tower of Trades: seven floors, then the Ceremonial Chamber
+	T01M01 = { { -12.5, -15.7, "stairs up to the 2nd floor, north west" },
+	           { 12.5, -15.7, "stairs up to the 2nd floor, north east" },
+	           { 0.0, 19.5, "exit outside, to the tower door" } },
+	T01M02 = { { 4.0, -4.5, "stairs up to the 3rd floor, in the middle" },
+	           { -13.2, -11.6, "stairs down to the 1st floor, north west" },
+	           { 13.2, -11.6, "stairs down to the 1st floor, north east" } },
+	T01M03 = { { 3.2, 0.2, "stairs down to the 2nd floor" },
+	           { -11.3, -13.6, "stairs up to the 4th floor, north west" } },
+	T01M04 = { { -13.6, -11.0, "stairs down to the 3rd floor, north west" },
+	           { 13.45, 11.0, "stairs up to the 5th floor, south east" } },
+	T01M05 = { { 11.0, 13.4, "stairs down to the 4th floor, south east" },
+	           { 1.0, -9.5, "stairs up to the 6th floor, north" } },
+	T01M06 = { { 0.0, -7.3, "stairs down to the 5th floor" },
+	           { 0.0, -2.2, "stairs up to the 7th floor, in the middle" } },
+	T01M07 = { { 0.0, 0.4, "stairs down to the 6th floor" },
+	           { 0.0, -21.0, "shining gate to the Ceremonial Chamber, where the boss is, north" } },
+	T01M08 = { { 0.0, 9.0, "exit back to the 7th floor" } },
 }
 function exit_name_xy(x, z)
-	local here = map_code()
+	-- (by the floor's own code first: the file's can be shared by several floors)
+	local here = here_map_code()
 	local list = here and EXIT_NAMES_XY[here:sub(1, 6)]
+	if not list then here = map_code() list = here and EXIT_NAMES_XY[here:sub(1, 6)] end
+	-- (the outside of a place, "M07M0000" in memory: listed under its bare code, "M07")
+	if not list then
+		local m = MAPIDS[u16(MAPID)]
+		list = m and EXIT_NAMES_XY[m[1]]
+	end
 	if not list then return nil end
 	local best, bd = nil, 9
 	for _, e in ipairs(list) do
@@ -2495,6 +2724,8 @@ function exit_name_xy(x, z)
 	return best
 end
 function exit_name_here(id)
+	local own = here_map_code()
+	if own and EXIT_NAMES_AT[own:sub(1, 6) .. "|" .. id] then return EXIT_NAMES_AT[own:sub(1, 6) .. "|" .. id] end
 	local here = map_code()
 	return here and EXIT_NAMES_AT[here:sub(1, 6) .. "|" .. id]
 end
@@ -2511,10 +2742,30 @@ function room_door_label(room)
 	if room:match("^b%d") or room:match("^lv") then return "door" end
 	return room .. " door"
 end
+-- a building's floors as the map list names them, "Inn Lv 1", "Inn Lv 2", "Inn B1": the way in
+-- is just the inn, the others are its floors ("Inn, floor 2", "Inn, basement"). (Not a
+-- dungeon's "Tower of Trades - Lv 1", which is a floor of its own.)
+function tidy_floor(name, door)
+	if not name or name:find(" %- Lv") or name:match("^Lv ") or name:match("^Interior") then return name end
+	if door and name:match(".+ Lv 1$") then return (name:gsub(" Lv 1$", "")) end
+	return (name:gsub("(.+) Lv (%d+)$", "%1, floor %2"):gsub("(.+) B1$", "%1, basement"))
+end
 local function door_name(id, kind)
 	if kind == 0 and exit_name_here(id) then return exit_name_here(id) end
 	local m = MAPIDS[id]
 	local name = (m and m[2]) or learned[id]
+	if name and (not m or #m[1] > 3) then name = tidy_floor(name, kind == 1) end
+	-- Dourbridge's rooms under its bridge: "Item shop on Right Under Bridge" is the item shop,
+	-- under the bridge on the right
+	local under = nil
+	if name then
+		local base, side = name:match("^(.-) on (%a+) Under Bridge$")
+		if base then name, under = base, "under the bridge on the " .. side:lower() end
+	end
+	if under then
+		local r = door_name_plain(id, kind, name)
+		return r and (r .. ", " .. under) or nil
+	end
 	-- the open field between towns shares its name with the town (Angel Falls): say what it is
 	if kind == 0 and id >= 20000 and id < 30000 and not (m and m[2]) then
 		-- (a field with a name of its own, "Zere Region", is called that)
@@ -2564,6 +2815,11 @@ local function door_name(id, kind)
 		return name and ("exit to " .. name) or "exit"
 	end
 	if m and m[1]:match("^R0") then name = "Quester's Rest" end        -- the inn's own maps
+	do
+		local mm = MAPIDS[u16(MAPID)]
+		local dn = DOOR_LABELS_AT[((mm and mm[1]) or map_code() or ""):sub(1, 6) .. "|" .. id]
+		if dn then return dn end
+	end
 	-- a part of a building with a name of its own after the dash ("Interior Lv 2 - Princess",
 	-- "Interior Lv 2 - Barracks"): that room's name
 	local room = name and name:match("^Interior.- %- (.+)$")
@@ -2592,6 +2848,14 @@ local function door_name(id, kind)
 	return name and (name .. " door") or "door"
 end
 door_name_g = door_name
+-- (a door or exit to a room with its name already tidied)
+function door_name_plain(id, kind, name)
+	if kind == 0 then
+		if name == "Basement" then return "stairs down to the basement" end
+		return "exit to " .. name:gsub("^%u", string.lower)
+	end
+	return name .. " door"
+end
 function door_gimmick_near(x, z, id)
 	local base, n = u32(0x020FB480), u32(0x020FB484)
 	if n == 0 or n > 200 or not inram(base, n * 0x74) then return id == nil end
@@ -2698,6 +2962,12 @@ end
 
 local function map_key(code) return code and code:sub(1, 6) or "" end
 local function place_key() return map_key(map_code()) .. "#" .. u16(MAPID) end
+-- which map you are on, for things picked or walked to: the code in memory is the map file's,
+-- which some places share between floors (every floor of the Tower of Trades says T01M01), so
+-- with the map's own number
+function here_code() local c = map_code() return c and (c .. "#" .. u16(MAPID)) or nil end
+-- the map's own code where the map list knows it (the floor, not the shared file)
+function here_map_code() local m = MAPIDS[u16(MAPID)] return (m and #m[1] >= 6 and m[1]) or map_code() end
 
 -- The screen fades through the DS master brightness register; while it is fading the player is
 -- walking through a door, not into a wall. If this BizHawk build cannot read hardware registers
@@ -2722,7 +2992,11 @@ local function room_name()
 		-- the Quester's Rest: "Lobby Interior 1" is the lobby
 		return "Quester's Rest " .. (m[2]:gsub(" Interior %d+$", ""):gsub(" Interior$", ""))
 	end
-	if m and #m[1] > 3 and m[2] and not m[2]:match("^M%d") then return m[2] end
+	if m and #m[1] > 3 and m[2] and not m[2]:match("^M%d") then
+		local base, side = m[2]:match("^(.-) on (%a+) Under Bridge$")
+		if base then return base .. ", under the bridge on the " .. side:lower() end
+		return tidy_floor(m[2], true)
+	end
 	return nil
 end
 local function track_map()
@@ -2746,10 +3020,26 @@ local function track_map()
 			-- going in through a door: say which building, if the game's map list names it
 			local d = pending.door
 			local room = room_name()
-			if room and map_name() then
+			-- (the same name twice, as the game writes it and as its map list does: "Tower of
+			-- Trades - L1" and "Tower of Trades - Lv 1": once, "Tower of Trades, floor 1")
+			local function norm(x) return (x:lower():gsub("lv%s*", "l"):gsub("[%s%-]", "")) end
+			if room and map_name() and norm(room) == norm(map_name()) then
+				label = map_name():gsub(" %- Lv? ?(%d+)$", ", floor %1")
+			elseif room and map_name() and room:sub(1, #(map_name():gsub(" %- .*$", ""))) == map_name():gsub(" %- .*$", "") then
+				-- (the map list's name already says the place: "Heights of Loneliness, outside",
+				-- not "Heights of Loneliness - L7, Heights of Loneliness, outside")
+				label = room
+			elseif room and map_name() then
 				label = room == map_name() and room or (map_name() .. ", " .. room)
 			elseif d and d.kind == 1 then
-				label = label .. ", " .. (d.label ~= "door" and d.label:gsub(" door$", "") or "inside")
+				-- (out through a door to a place the map list names apart from the game's area name:
+				-- out of the Tower of Trades onto Newid Isle is "Tower of Trades, outside")
+				local mm = MAPIDS[u16(MAPID)]
+				if mm and #mm[1] == 3 and mm[2] and map_name() and mm[2] ~= map_name() then
+					label = mm[2] .. ", outside"
+				else
+					label = label .. ", " .. (d.label ~= "door" and d.label:gsub(",.*$", ""):gsub(" door$", "") or "inside")
+				end
 			elseif d and d.kind == 0 and map_name() and (d.label == "exit" or d.label == "exit to the open field") then
 				learn_name(d.id, map_name())       -- the exit had no name: now we know where it goes
 			end
@@ -2970,6 +3260,7 @@ function boss_name()
 	end
 	return nil
 end
+SPECIAL_MODELS = { ["M07:z000a"] = "slime" }
 local function characters()
 	local list = {}
 	local n = u32(OBJ_COUNT)
@@ -2987,6 +3278,10 @@ local function characters()
 			-- character
 			local boss = model:match("^b%d%d%d") ~= nil
 			if boss then story = true end
+			-- someone the place's script puts on a model of its own, placed like a story
+			-- character (Zere Rocks' slime, in the north east house)
+			local special = SPECIAL_MODELS[(map_code() or ""):sub(1, 3) .. ":" .. model]
+			if special then story = true end
 			local x, z
 			if story then x, z = s32(o + 0x64) / 4096, s32(o + 0x6C) / 4096
 			else x, z = s32(o + 0x24) / 4096, s32(o + 0x2C) / 4096 end
@@ -3024,7 +3319,9 @@ local function characters()
 				end
 				-- only names are kept for people; what they said is not part of the label
 				if person and label and label:find("^someone who says") then label = nil end
-				if boss then
+				if special then
+					label = special
+				elseif boss then
 					label = (gname or boss_name() or "the boss") .. ", the boss"
 				elseif story and label and label ~= gname then label = label .. ", story character" end
 				label = label or look
@@ -3065,7 +3362,44 @@ end
 -- Each is a small box with a kind number; doors are kind 2 and are already in the door list.
 GIMMICK_PTR, GIMMICK_COUNT = 0x020FB480, 0x020FB484
 local searched = searched_load  -- things you have already opened or looked in, kept in the places file
-GIMMICK_NAMES = { [0] = "pot or barrel", [1] = "treasure chest", [5] = "cupboard", [6] = "barrel", [8] = "bookshelf", [9] = "something to search" }
+GIMMICK_NAMES = { [0] = "pot or barrel", [1] = "treasure chest", [5] = "cupboard", [6] = "barrel", [8] = "bookshelf", [9] = "ladder" }
+-- Ladders (kind 9): one marker at each end, the same spot at two heights (Dourbridge's from the
+-- walkway by the river up to the street). On one, up on the D-pad climbs and down goes down.
+function ladder_list()
+	local ends, out = {}, {}
+	local base, n = u32(GIMMICK_PTR), u32(GIMMICK_COUNT)
+	if n == 0 or n > 200 or not inram(base, n * 0x74) then return out end
+	for k = 0, n - 1 do
+		local g = base + k * 0x74
+		if u32(g + 4) == 9 then ends[#ends + 1] = { x = s32(g + 8) / 4096, y = s32(g + 0x0C) / 4096, z = s32(g + 0x10) / 4096 } end
+	end
+	for i, a in ipairs(ends) do
+		for j = i + 1, #ends do
+			local b = ends[j]
+			if math.abs(a.x - b.x) < 1.0 and math.abs(a.z - b.z) < 1.0 and math.abs(a.y - b.y) > 1.0 then
+				out[#out + 1] = { x = a.x, z = a.z, bot = math.min(a.y, b.y), top = math.max(a.y, b.y) }
+			end
+		end
+	end
+	return out
+end
+-- the height of a door's marker at a spot (doors carry none of their own)
+function gimmick_y_at(x, z)
+	local base, n = u32(GIMMICK_PTR), u32(GIMMICK_COUNT)
+	if n == 0 or n > 200 or not inram(base, n * 0x74) then return nil end
+	for k = 0, n - 1 do
+		local g = base + k * 0x74
+		if math.abs(s32(g + 8) / 4096 - x) < 0.3 and math.abs(s32(g + 0x10) / 4096 - z) < 0.3 then return s32(g + 0x0C) / 4096 end
+	end
+	return nil
+end
+-- the ladder you are on, partway up (not standing at either end)
+function on_ladder(px, py, pz)
+	for _, L in ipairs(ladder_list()) do
+		if math.abs(px - L.x) < 1.0 and math.abs(pz - L.z) < 1.2 and py > L.bot + 0.35 and py < L.top - 0.35 then return L end
+	end
+	return nil
+end
 local function map_items()
 	local list = {}
 	local base, n = u32(GIMMICK_PTR), u32(GIMMICK_COUNT)
@@ -3078,8 +3412,35 @@ local function map_items()
 			local x, z = s32(g + 8) / 4096, s32(g + 0x10) / 4096
 			local key = place_key() .. ":" .. math.floor(x + 0.5) .. ":" .. math.floor(z + 0.5)
 			local label = GIMMICK_NAMES[kind] or "something to search"
-			if searched[key] then label = label .. (kind == 1 and ", opened" or ", searched") end
-			list[#list + 1] = { label = label, x = x, z = z, item = true, gkind = kind, key = key, fy = s32(g + 0x0C) / 4096 }
+			if searched[key] and kind ~= 9 then label = label .. (kind == 1 and ", opened" or ", searched") end
+			local leads_off = nil
+			if kind == 9 then
+				-- which end: the other marker of the pair is above or below this one
+				local y = s32(g + 0x0C) / 4096
+				for _, L in ipairs(ladder_list()) do
+					if math.abs(L.x - x) < 1.0 and math.abs(L.z - z) < 1.0 then
+						label = (math.abs(y - L.top) < 0.3) and "ladder, top end, it goes down" or "ladder, bottom end, it goes up"
+						-- no floor at this end on this map: the ladder leads on to the next floor
+						local nv = nav_ready()
+						if nv and (nv.nfloors or 0) > 0 then
+							local found = false
+							for _, o in ipairs({ { 0, 0 }, { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }, { 2, 0 }, { -2, 0 }, { 0, 2 }, { 0, -2 } }) do
+								for _, h in ipairs(floor_heights(nv, x + o[1], z + o[2])) do
+									if math.abs(h - y) < 0.8 then found = true end
+								end
+							end
+							if not found then
+								label = (math.abs(y - L.top) < 0.3) and "ladder up to the next floor" or "ladder down to the floor below"
+								leads_off = true
+								-- (named where known: "vine up to floor 3")
+								local nm = exit_name_xy(x, z)
+								if nm then label = nm end
+							end
+						end
+					end
+				end
+			end
+			list[#list + 1] = { label = label, x = x, z = z, item = true, gkind = kind, key = key, fy = s32(g + 0x0C) / 4096, leads_off = leads_off }
 		end
 	end
 	return list
@@ -3098,9 +3459,22 @@ local function mark_searched()
 	local best, bd = nil, 1.4
 	for _, it in ipairs(map_items()) do
 		local d = math.sqrt((it.x - px) ^ 2 + (it.z - pz) ^ 2)
-		if d < bd then best, bd = it, d end
+		if d < bd and it.gkind ~= 9 then best, bd = it, d end
 	end
+	-- (only once the game says something: pressing A in the wrong spot, or by a chest that is
+	-- not there, opened nothing)
 	if best and bd < nearest_person and not searched[best.key] then
+		SEARCH_PENDING = { it = best, serial = msg_serial or 0, frame = frame }
+	end
+end
+local function confirm_searched()
+	local sp = SEARCH_PENDING
+	if not sp then return end
+	if frame - sp.frame > 240 then SEARCH_PENDING = nil return end
+	if (msg_serial or 0) == sp.serial then return end
+	SEARCH_PENDING = nil
+	local best = sp.it
+	if not searched[best.key] then
 		searched[best.key] = true
 		-- pots, barrels and shelves fill up again after a while; only opened chests are kept
 		if best.gkind ~= 1 then return end
@@ -3151,7 +3525,7 @@ function town_doors_raw()
 			-- the map the door leads to (a shop, a house ...) is kept at +0x30
 			local id = u16(g + 0x30)
 			local label = (MAPIDS[id] or learned[id]) and door_name(id, 1) or "door"
-			if not dup then list[#list + 1] = { label = label, x = x, z = z, kind = 1, gdoor = true, id = id } end
+			if not dup then list[#list + 1] = { label = label, x = x, z = z, kind = 1, gdoor = true, id = id, fy = s32(g + 0x0C) / 4096 } end
 		end
 	end
 	return list
@@ -3675,6 +4049,121 @@ DUNGEON_GUIDE = {
 			"Afterwards you get a Fygg. Back in Porth Llaffan, talk to Jona south of the church, then the man in blue on the boat by the item shop, and choose to sail. Next stop: Slurry Quay.",
 		},
 	},
+	-- the Tower of Trades (T01): outside its door (opened with the Bow party trick), seven
+	-- floors (T01M01 to T01M07) and the Ceremonial Chamber (T01M08), where the boss is
+	T01 = { name = "Tower of Trades", before = 699,
+		M00 = function()
+			local bow = nil
+			for _, d in ipairs({ "up", "right", "left", "down" }) do
+				local l = trick_list(d)
+				for k, n in ipairs(l) do
+					if n == "Bow" and not bow then bow = { d = d, list = l, k = k } end
+				end
+			end
+			local how
+			if bow then
+				how = "Bow is on B and " .. bow.d .. (#bow.list > 1 and (", with " .. table.concat(bow.list, ", then ")) or "") ..
+					". Walk up to the door so you face it, then hold B and press " .. bow.d .. ". You bow and the door opens; then walk north through it, into the 1st floor."
+			else
+				how = "Bow is not on any button yet. Press X for the menu, go to Misc., then Assign Party Tricks, pick a row, for example B and right, and press A. " ..
+					"The list of tricks has two pages: press right until it says next page, find Bow and press A. Then press B to leave; that keeps your choice. " ..
+					"Back at the door, face it, hold B and press that direction. (Bow is taught by the priest on the first floor of Alltrades Abbey.)"
+			end
+			return {
+				"You are outside the Tower of Trades. The tower door is north of you, up the steps; it is the door in the doors list. It only opens when you do the Bow party trick in front of it. If it is open already, just walk in.",
+				how,
+				"Inside are seven floors and the boss, the Master of Nu'un, at the top. Heal and stock up on medicinal herbs first; Zoom takes you back to Alltrades Abbey to rest.",
+			}
+		end,
+		M01 = {
+			"The 1st floor. Optional: the barrels in the south west and south east corners hold items; check them.",
+			"The way on: stairs up to the 2nd floor, north east, in the exits list. The north west stairs go to the same floor, but the north east ones are closer to its chests.",
+		},
+		M02 = {
+			"The 2nd floor. Three chests stand in a row in the middle of the south side, past the door in the south east corner: go south along the east side, through that door, then west along the south wall. They are in the items list.",
+			"The way on: stairs up to the 3rd floor, in the middle of the floor. Keep going round from the chests until you can head into the middle; auto walk can take you there.",
+		},
+		M03 = {
+			"The 3rd floor. Optional: a chest with a mini medal in the south east corner. Read the inscription to the north if you like.",
+			"The way on: stairs up to the 4th floor, in the north west corner.",
+		},
+		M04 = {
+			"The 4th floor; you come in at the north west. Two chests: one in the north, a short way east of where you come in, with 1200 gold coins, and one on the east side. The floor is a maze of walls: to reach the east chest, the way goes west and south round the middle, then east along the south and up, so auto walk may seem to head the wrong way at first.",
+			"The way on: stairs up to the 5th floor, in the south east corner.",
+		},
+		M05 = {
+			"The 5th floor; you come in at the south east. A chest with iron gauntlets, good armour for the arms, is north of the middle, towards the east.",
+			"The rooms in the corners: barrels in the north east one, pots to break in the north west one. Nothing else.",
+			"The way on: stairs up to the 6th floor, in the north, up the middle of the floor.",
+		},
+		M06 = {
+			"The 6th floor has nothing to find. Go past the columns to the stairs up to the 7th floor, in the middle of the room; they are right by where you come in.",
+		},
+		M07 = {
+			"The 7th floor, the last. Just north of the stairs is an inscription to read. Chests: a mini medal in the south west corner, and magic water, which restores MP, in the north east corner.",
+			"Heal everyone and save your MP. The way on is the shining gate to the Ceremonial Chamber, in the north: past it waits the boss.",
+		},
+		M08 = {
+			"The Ceremonial Chamber. Talk to the man in the middle of the room and watch the scene; then the boss, the Master of Nu'un, attacks.",
+			"He acts twice a turn and has about 800 HP. He casts Woosh on the whole party for 35 to 40 each, a lightning spell on one of you, and drains a caster's MP. Keep everyone above about 50 HP, and heal with Heal or Midheal as soon as Woosh hits.",
+			"When he casts Buff his defence goes up and hits do little: then attack with spells like Frizz or Crack instead. Wind spells, Woosh and Zam, do little to him.",
+			"Afterwards you get a fygg. Go back to Alltrades Abbey, with Zoom, and talk to the Jack of Alltrades in the north of the building, twice, to be able to change vocations. Then head south to Porth Llaffan.",
+		},
+	},
+	-- Heights of Loneliness (D07): outside, floors 1 to 3 (vines up between ledges), two caves
+	-- off floor 3 (floors 4 and 5), floors 6 and 7, then outside again and up to Zere Rocks (M07),
+	-- where the boss is. Ladders and vines are in the items list; auto walk climbs a run of them.
+	D07 = { name = "Heights of Loneliness", before = 803,
+		M00 = {
+			"Outside the Heights of Loneliness. The Mountain Hut is behind you, to the south; rest there first if you need to. The way in is the cave entrance to the north, in the exits list.",
+			"Inside, the way goes up through seven floors to Zere Rocks at the top, where the boss waits. Vines and ladders join the ledges: they are in the items list, and auto walk climbs them for you, one after another when it takes more than one.",
+		},
+		M01 = {
+			"Floor 1. Optional: a chest with a mini medal, up the ladder on the west side; pick the ladder up in the items list and auto walk takes you up it.",
+			"The way on: the exit north, up to floor 2, in the exits list. The path goes east round the edge of the room to it.",
+		},
+		M02 = {
+			"Floor 2. You come in at the south. Three vines go up from the ground, and the ledges above have more.",
+			"Optional chests, in the items list: a blue chest up the vine to the north west, and a chest with a seed of deftness up the eastern vine, to the north. Pick a chest and auto walk climbs the right vine for it; come back down the same vine afterwards.",
+			"The way on, up to floor 3: the vine to the north, west of the seed vine, then a short vine up from that ledge, then a long path round, east and back west along a narrow ledge, to a last vine up. That last one is the vine up to floor 3, in the exits list: pick it and auto walk climbs each vine on the way. The stairs in the north east corner lead nowhere.",
+		},
+		M03 = {
+			"Floor 3. The way on is a long climb: follow the path up to a bridge, cross it to the east, climb the vine at the far east end, then go along the long vine to the door, on to floor 6, in the exits list.",
+			"Optional: the first hole you reach on the way up, in the exits list, is a cave. Go through it to the far end and out onto a ledge with a chest of kitty litter. Then go back in by the hole beside the chest and back through the cave to here.",
+			"Optional: before you cross the bridge, a vine to the west leads up to a chest with a mini medal. Pick the chest in the items list and auto walk climbs to it.",
+			"Auto walk may not manage the long vine at the end. If it stops on the vine, keep pressing the way the door is until you reach it.",
+		},
+		M04 = {
+			"A cave off floor 3. Go through it, west, to its far exit, which comes out on the ledge with the kitty litter chest. The way you came in goes back to floor 3.",
+		},
+		M05 = {
+			"A cave off floor 3. One exit comes out on the ledge with the kitty litter chest; the other goes back east through the cave to the rest of floor 3.",
+			"The ledge with the chest goes nowhere else: after the chest, come back in here and go back through the cave.",
+		},
+		M06 = {
+			"Floor 6. Go north, then west up the stairs: the way on, to floor 7, in the exits list.",
+		},
+		M07 = {
+			"Floor 7. Follow the path round to the exit to the south: the way on, outside, in the exits list.",
+		},
+		M08 = {
+			"The ladder room off floor 1, on the way to the mini medal chest. The way back is in the exits list.",
+		},
+		M09 = {
+			"Outside, near the top. Follow the path round, then south. A man called Christopher Collapsus lies on the stairs: talk to him. If you have a special medicine, made in the alchemy pot, giving it to him finishes his request, and he gives you a treasure map.",
+			"North of him, west of the stairs, is a blue chest, in the items list. Then go up the stairs to Zere Rocks: the way on, in the exits list. The boss is up there; heal first.",
+		},
+	},
+	-- Zere Rocks (M07): the slime in the north east house starts the boss, Garth Goyle
+	M07 = { name = "Zere Rocks", before = 803,
+		M00 = {
+			"Zere Rocks, the top of the Heights of Loneliness. Heal everyone first. Go through the door to the north east house, where the slime is, in the exits list. Inside, the slime is just in front of you as you come in, in the people list: talk to it. The bookshelf in that house has alchemy recipes.",
+			"Then go back outside: the boss comes for you.",
+			"The boss is Garth Goyle. He acts twice a turn, hits one of you for 20 to 30, and about 45 after he psyches himself up. He casts Kabuff, which raises his defence a lot, and Magic Barrier against spells.",
+			"Build up tension, for example with Psyche Up, and attack hard when his Kabuff wears off. Keep everyone above about 50 HP.",
+			"Afterwards, take the stairs down to the cellar, beside the north east house, in the exits list, and talk to the ghost there for the third fygg. Then use Evac to leave, and head for Bloomingdale.",
+		},
+	},
 	D03 = { name = "Brigadoom", before = 306,
 		M01 = {
 			"You are in Brigadoom's ruins; you came in at the south. Optional: a chest with a trailblazing bandana, good for a healer, on top of the eastern tower. From down here it is the treasure chest in the items list that says higher up. To get to it, go in through the eastern tower door, then take the exit outside at the top of the stairs inside; that brings you out on top of the tower, next to the chest.",
@@ -3724,7 +4213,7 @@ function dungeon_guide()
 	local g = DUNGEON_GUIDE[code:sub(1, 3)]
 	if not g or story_now() > g.before then return nil end
 	local sub = code:sub(4, 6)
-	if sub == "" then sub = "M01" end
+	if sub == "" then sub = g.M00 and "M00" or "M01" end
 	local part = g[sub]
 	if g[sub .. "_open"] and code_unlocked_shortcut(g) then part, code = g[sub .. "_open"], code .. "open" end
 	-- (a part can depend on where in it you are: a function that says which steps)
@@ -4021,6 +4510,55 @@ local function build_nearby()
 	for _, p in ipairs(places) do
 		if p.code == key and p.kind == "mark" then list[#list + 1] = { label = p.label, x = p.x, z = p.z, mark = true } end
 	end
+	-- People with the same name get a number each ("old man 1", "old man 2"), always the same one
+	-- for the same person while you are here (counted in the game's own order of people)
+	do
+		local groups = {}
+		for _, it in ipairs(list) do
+			if it.obj and not it.thing and not it.item and not it.monster and it.label then
+				-- (the name can be learned later: start again from it when it is not the numbered one)
+				if not it.base_label or it.label ~= it.numbered_label then it.base_label = it.label end
+				local g = groups[it.base_label] or {}
+				groups[it.base_label] = g
+				g[#g + 1] = it
+			end
+		end
+		for base, g in pairs(groups) do
+			if #g > 1 then
+				table.sort(g, function(a, b)
+					local ka, kb = tostring(a.key or ""), tostring(b.key or "")
+					if ka ~= kb then return ka < kb end
+					if a.x ~= b.x then return a.x < b.x end
+					return a.z < b.z
+				end)
+				-- (a name with more after a comma: the number goes after the name itself,
+				-- "royal guard 2, across the counter")
+				for k, it in ipairs(g) do
+					local head, tail = base:match("^(.-)(, .*)$")
+					it.label = head and (head .. " " .. k .. tail) or (base .. " " .. k)
+					it.numbered_label = it.label
+				end
+			end
+		end
+	end
+	-- someone standing where a shopkeeper, innkeeper or priest stands says so: "weapon and armour
+	-- shop, big man in a horned helmet"
+	do
+		local spots = SERVICE_SPOTS[u16(MAPID)]
+		if spots then
+			for _, it in ipairs(list) do
+				if it.obj and not it.thing and not it.item and not it.monster and it.label then
+					for _, sp in ipairs(spots) do
+						if (it.x - sp[1]) ^ 2 + (it.z - sp[2]) ^ 2 < 1.3 ^ 2 and not it.label:find(sp[3], 1, true) then
+							it.label = sp[3] .. ", " .. it.label
+							it.numbered_label = it.label
+							break
+						end
+					end
+				end
+			end
+		end
+	end
 	for _, it in ipairs(list) do it.d = math.sqrt((it.x - px) ^ 2 + (it.z - pz) ^ 2) end
 	if reach_mark then reach_mark(list) end
 	-- things you can walk to first, nearest first; then the ones in other rooms
@@ -4037,8 +4575,12 @@ local function announce_selected()
 	local it = nearby[selected]
 	if not it then say("Nothing nearby.") return end
 	sel_item = it
-	it.code = map_code()
-	say(it.label .. ", " .. directions_to(it.x, it.z) .. (it.unreachable and ((it.level and ", " .. it.level or "") .. ", no way there from here") or "") .. ". " .. selected .. " of " .. #nearby)
+	it.code = here_code()
+	-- (a chest up a vine: auto walk climbs there, so not "no way there")
+	local how = ", no way there from here"
+	if it.unreachable and item_note(it) then how = ", " .. item_note(it)
+	elseif it.unreachable and (it.item or it.kind == 0) and ladder_route_known(it) then how = ", by ladders" end
+	say(it.label .. ", " .. directions_to(it.x, it.z) .. (it.unreachable and ((it.level and ", " .. it.level or "") .. how) or "") .. ". " .. selected .. " of " .. #nearby)
 end
 
 -- Categories for the nearby list: N and B (or the controller) only go through the chosen one.
@@ -4087,6 +4629,8 @@ end
 local function category_of(it)
 	if it.monster then return "Monsters" end
 	if it.sparkle then return "Sparkly spots" end
+	-- (a ladder or vine to another floor is a way out of here)
+	if it.item and it.leads_off then return "Exits" end
 	if it.item then return "Items" end
 	-- things you work (the Quarantomb's sage statues, with a button on the wand; levers and
 	-- switches) go with the items, where you look for things to do
@@ -4138,13 +4682,17 @@ local function step_category(delta)
 		if n > 0 or ALWAYS_SHOWN[CATEGORIES[category]] then
 			selected, sel_item = 0, nil
 			local away = 0
-			for _, it in ipairs(items) do if it.unreachable then away = away + 1 end end
+			for _, it in ipairs(items) do if it.unreachable and not it.leads_off then away = away + 1 end end
 			local note = ""
 			-- (out in the open there are no rooms: across water or up a cliff)
 			local code = map_code() or ""
 			-- (nor for exits, which are often on a ledge above or below: Tywll Cave's outside)
 			local open = code:match("^F") or code:match("^S") or CATEGORIES[category] == "Exits"
-			if away == n and n > 0 then note = open and ", all out of reach from here" or ", all in other rooms, no way there from here"
+			-- (with ladders or vines here: up or down them, which auto walk climbs, Heights of Loneliness)
+			local climb = (not open or CATEGORIES[category] == "Exits") and CATEGORIES[category] ~= "Doors" and #ladder_list() > 0
+			if climb and away == n and n > 0 then note = ", all on other levels, up or down ladders or another way"
+			elseif climb and away > 0 then note = ", " .. away .. " of them on other levels, up or down ladders or another way"
+			elseif away == n and n > 0 then note = open and ", all out of reach from here" or ", all in other rooms, no way there from here"
 			elseif away > 0 then note = ", " .. away .. (open and " of them out of reach from here" or " of them in other rooms") end
 			say(CATEGORIES[category] .. ", " .. (n > 0 and n or "none here right now") .. note, true)
 			return
@@ -4651,6 +5199,31 @@ function find_path3(n, sx, sy, sz, gx, gz, gy, clear, budget, avoid)
 	local s0 = { si, sj, sh, key(si, sj, sh) }
 	g[s0[4]] = 0
 	push(hd(si, sj, sh), s0)
+	-- (just stepped off a ladder onto the lip of a ledge, the cell you are in can be hemmed in by
+	-- the edge: start from the spots round you too, a step away)
+	local no_floor = not floor_near(n, sx, sz, sy, 1.5)
+	if not no_floor and sy then
+		for _, L in ipairs(ladder_list()) do
+			if (L.x - sx) ^ 2 + (L.z - sz) ^ 2 < 2.25 and (math.abs(L.top - sy) < 0.6 or math.abs(L.bot - sy) < 0.6) then no_floor = true end
+		end
+	end
+	for di = -2, 2 do for dj = -2, 2 do
+		if di ~= 0 or dj ~= 0 then
+			local x, z = (si + di) * C, (sj + dj) * C
+			for _, h in ipairs(floor_heights(n, x, z)) do
+				-- (at the very top of a ladder, or with no floor under you at all: the ledge's own
+				-- edge counts as a wall between you and it, so do not look for walls)
+				if math.abs(h - sh) < 0.7 and clear_at3(n, x, z, h, clear) and (no_floor or not wall_between3(n, sx, sz, x, z, math.max(h, sh))) then
+					local k = key(si + di, sj + dj, h)
+					local gc = math.sqrt(di * di + dj * dj)
+					if gc < (g[k] or 1e18) then
+						g[k] = gc
+						push(gc + hd(si + di, sj + dj, h), { si + di, sj + dj, h, k })
+					end
+				end
+			end
+		end
+	end end
 	local best, bestn = hd(si, sj, sh), s0
 	local count = 0
 	while hn > 0 do
@@ -4785,7 +5358,46 @@ function avoid_list(tx, tz, px, pz)
 			end
 		end
 	end
+	-- on the way to something: the other chests, pots and barrels are in the way too (the map's
+	-- walls do not have them). A chest next to the one you want, in a row, was walked into.
+	if tx then
+		for _, b in ipairs(things_in_way(tx, tz, px, pz)) do avoid[#avoid + 1] = b end
+	end
 	return avoid
+end
+function things_in_way(tx, tz, px, pz)
+	local out = {}
+	local py = select(2, player_pos())
+	for _, it in ipairs(map_items()) do
+		-- (one on another level is no obstacle; the straight line check does not look at heights)
+		-- (nor a ladder: it is walked onto)
+		local level = (not (it.fy and py) or math.abs(it.fy - py) < 1.5) and it.gkind ~= 9
+		local mine = not level or tx and math.abs(it.x - tx) < 0.3 and math.abs(it.z - tz) < 0.3
+		local here = math.abs(it.x - px) < 0.6 and math.abs(it.z - pz) < 0.6
+		if not mine and not here then
+			out[#out + 1] = { x0 = it.x - 0.4, x1 = it.x + 0.4, z0 = it.z - 0.4, z1 = it.z + 0.4,
+				y0 = it.fy, y1 = it.fy and (it.fy + 1.0), pad = 0.15, thing = true }
+		end
+	end
+	-- and a town's house doors: walking past one too close goes in (on the way to the sailor
+	-- by Dourbridge's bar, into the bar)
+	local okd, tdl = pcall(town_doors)
+	for _, d in ipairs(okd and tdl or {}) do
+		local mine = tx and math.abs(d.x - tx) < 0.3 and math.abs(d.z - tz) < 0.3
+		local level = not (d.fy and py) or math.abs(d.fy - py) < 1.5
+		-- (only doors out to somewhere else: a door between two rooms of the same place, leading
+		-- nowhere of its own (Alltrades Abbey's), is the way through and must stay open)
+		local leads_out = d.id and d.id ~= 0 and d.id ~= u16(MAPID)
+		if not mine and level and leads_out then
+			-- (a door's box is 1.2 by 2 steps, turned whichever way the door faces; standing in
+			-- that, just out of the door, only the door itself, so you can step away from it but
+			-- the route does not go back in)
+			local r = (math.abs(d.x - px) < 1.3 and math.abs(d.z - pz) < 1.3) and 0.4 or 1.2
+			out[#out + 1] = { x0 = d.x - r, x1 = d.x + r, z0 = d.z - r, z1 = d.z + r,
+				y0 = d.fy and (d.fy - 0.6), y1 = d.fy and (d.fy + 2.0), pad = 0.1, tdoor = true }
+		end
+	end
+	return out
 end
 -- Where you can walk from where you stand, without going through a door. One map can hold
 -- several rooms that are only joined through another map (the side rooms off a hall), so a thing
@@ -4871,8 +5483,9 @@ end
 -- the same over floors at different heights (stairs, ramps, balconies)
 -- an exit's box, as a key (the avoid list keeps some boxes as copies)
 function box_key(b) return string.format("%.1f,%.1f,%.1f,%.1f", b.x0, b.x1, b.z0, b.z1) end
-function reach_region3(n, px, py, pz, avoid, maxc)
+function reach_region3(n, px, py, pz, avoid, maxc, room)
 	local C = REACH_CELL
+	room = room or 0.25
 	local MAXC = maxc or REACH_MAX
 	local si, sj = math.floor(px / C + 0.5), math.floor(pz / C + 0.5)
 	local sh = floor_near(n, px, pz, py, 1.5) or py
@@ -4891,7 +5504,7 @@ function reach_region3(n, px, py, pz, avoid, maxc)
 		for di = -r, r do for dj = -r, r do
 			if not start then
 				for _, h in ipairs(fhs_at(si + di, sj + dj)) do
-					if not start and math.abs(h - sh) < 1.0 and clear_at3(n, (si + di) * C, (sj + dj) * C, h, 0.25) then start = { si + di, sj + dj, h } end
+					if not start and math.abs(h - sh) < 1.0 and clear_at3(n, (si + di) * C, (sj + dj) * C, h, room) then start = { si + di, sj + dj, h } end
 				end
 			end
 		end end
@@ -4910,7 +5523,7 @@ function reach_region3(n, px, py, pz, avoid, maxc)
 			for _, nh in ipairs(fhs_at(ni, nj)) do
 				local k = k3(ni, nj, nh)
 				if not seen[k] and math.abs(nh - h) <= STEP_RISE * d[3] then
-					if clear_at3(n, x, z, nh, 0.25) and not wall_between3(n, i * C, j * C, x, z, math.max(h, nh)) then
+					if clear_at3(n, x, z, nh, room) and not wall_between3(n, i * C, j * C, x, z, math.max(h, nh)) then
 						if not in_avoid(avoid, x, z, nh, 0.6) then
 							seen[k] = true
 							cells[reach_key(ni, nj)] = true
@@ -5067,8 +5680,35 @@ function level_word(n, py, x, z, y)
 	return best < py and "lower down" or "higher up"
 end
 -- said when a thing on the list cannot be walked to from here
+-- How to get to something you cannot walk to, where that is known: the Heights of Loneliness'
+-- kitty litter chest is on a ledge reached only through the caves
+ITEM_NOTES = {
+	["D07M03|-16.5|-5.5"] = "reached through the first hole, into a cave, in the exits list",
+}
+function item_note(it)
+	local c = here_map_code() or map_code() or ""
+	return ITEM_NOTES[c:sub(1, 6) .. "|" .. string.format("%.1f", it.x) .. "|" .. string.format("%.1f", it.z)]
+end
+-- can a run of ladders take you there from where you are (worked out once per spot)
+LADDER_OK_CACHE = {}
+function ladder_route_known(it)
+	local ladders = ladder_list()
+	if #ladders == 0 then return false end
+	local px, py, pz = player_pos()
+	if not px then return false end
+	local ty = it.y0 or it.fy
+	if not ty then return false end
+	local k = string.format("%s|%.1f|%.1f|%d|%d|%d", here_code() or "", it.x, it.z, math.floor(px), math.floor(py), math.floor(pz))
+	if LADDER_OK_CACHE[k] == nil then
+		local ok, l = pcall(ladder_chain, ladders, it, ty, px, py, pz, on_ladder(px, py, pz))
+		LADDER_OK_CACHE[k] = (ok and l) and true or false
+	end
+	return LADDER_OK_CACHE[k]
+end
 function unreachable_msg(it)
 	if not it.unreachable then return nil end
+	local note = item_note(it)
+	if note then return "There is no way to " .. it.label .. " from here. It is " .. note .. "." end
 	local code = map_code() or ""
 	local what = (it.kind == 1) and "That door is" or "It is"
 	if it.level then
@@ -5087,6 +5727,7 @@ function reach_test_g()
 end
 
 local walk = nil
+function walk_g() return walk end
 local function stop_walk(msg)
 	-- (stuck just as a battle starts: the screen freezes for the battle and the walk thinks it is
 	-- stuck. If a battle does come in the next moment, carry on after it.)
@@ -5122,6 +5763,9 @@ end
 -- far z}): some people, such as Coffinwell's innkeeper, have no pointer to theirs in memory.
 -- Talked to from anywhere else, she only talks about the disease.
 TALK_ZONES = {[100]={{-1.72,4.36,-0.82,5.46}}, [104]={{-3.94,-0.2,-2.84,1},{-3.52,-0.83,-1.52,1.17},{-3.19,-1.01,-1.89,0.19},{-1.01,-11.59,0.19,-9.99}}, [105]={{-2.65,-1.41,-0.05,0.68}}, [106]={{-2.55,-3.67,-1.35,-2.47}}, [107]={{-1.96,3.96,0.59,4.69},{-1.91,3.59,0.59,4.69},{0.21,5.25,1.51,6.85}}, [108]={{-1.08,0.18,0.92,2.18}}, [109]={{-0.76,-1.82,1.34,-0.82}}, [114]={{6.04,1.94,9.94,5.04},{12.72,6.12,14.51,8.52}}, [116]={{4.38,-33.95,5.87,-32.65}}, [198]={{-6.08,14.78,-4.08,16.88},{4.02,14.47,6.52,16.47}}, [200]={{-1.87,-10.86,1.83,-6.96}}, [201]={{-2.64,-40.32,2.45,-36.62}}, [204]={{-11.63,-17.35,-10.63,-16.35}}, [210]={{-4.58,0.05,-2.98,1.55}}, [211]={{-3.62,-0.02,-2.62,0.98}}, [216]={{-0.53,-0.88,0.47,0.12}}, [219]={{-0.53,-0.88,0.47,0.12},{1.77,7.72,3.86,9.32},{6.86,8.69,8.55,10.29}}, [401]={{-2.72,-9.23,2.57,-5.63}}, [1100]={{14.11,-18.15,15.91,-16.26}}, [1102]={{-2.1,-0.21,-1.1,0.79}}, [1103]={{-1.7,-0.2,0,1.59},{-1.04,0.32,-0.04,1.32}}, [1105]={{-2.1,-0.21,-1.1,0.79}}, [1106]={{-0.86,-3.18,0.94,-1.78}}, [1107]={{-2.1,-0.21,-1.1,0.79}}, [1110]={{-2.1,-0.21,-1.1,0.79}}, [1200]={{-13.26,-8.75,-11.26,-6.75},{-2.5,7.5,-0.5,9.5},{17.16,-16.26,18.26,-14.66}}, [1201]={{-4.77,-0.43,-1.47,1.17},{-4.37,-4.49,-1.27,-2.19},{-3.56,1.37,-2.36,3.17},{-1.09,-0.81,0.11,2.95}}, [1202]={{-1.09,-0.81,1.11,0.79},{3.86,-2.95,5.06,-1.66}}, [1203]={{-6.26,-1.13,-4.26,0.87},{-0.08,2.34,2.32,4.74}}, [1204]={{-4.77,-0.43,-1.47,1.17},{2.53,-2.87,5.93,0.03}}, [1206]={{-3.56,1.37,-2.36,3.17}}, [1300]={{-7.92,9.39,-5.82,11.59},{-5.06,16.87,-2.07,18.97},{2.18,16.61,5.18,18.81},{14.09,-8.87,15.09,-6.98}}, [1301]={{3.25,3.25,4.25,5.05}}, [1501]={{-3.7,-3.55,-0.01,-0.35},{-1.21,3.68,0.09,6.58}}, [1502]={{-2.36,-4.09,0.94,-1.09}}, [1503]={{-1.76,-1.63,0.14,-0.13}}, [1504]={{-1.05,-1.65,0.65,0.05}}, [1505]={{-7.64,-3.43,-5.54,0.66},{-4.55,-3.57,-2.15,0.83}}, [1506]={{-0.98,-1.13,0.92,0.17}}, [1700]={{-13.26,-8.75,-11.26,-6.75},{-12.84,3.67,-11.54,5.27},{-9.53,-19.34,-8.03,-17.84},{-5.65,-7.17,1.84,-1.88},{-2.5,7.5,-0.5,9.5},{6.31,8.4,8.11,10},{9.46,-1,11.16,0.6},{11.29,-16.74,12.89,-15.44},{11.83,3.33,13.53,5.13},{12.91,-7.91,14.91,-5.52},{16,-12.28,18,-9.88}}, [1706]={{-0.77,-11.01,0.73,-8.01}}, [1800]={{-12.26,-8.22,-9.86,-6.72},{-7.7,26.27,-5.2,29.06},{4,18.47,5.2,21.27}}, [1802]={{1.98,-1.5,2.98,-0.5}}, [1806]={{-0.48,2.84,0.62,5.04}}, [1807]={{5.23,-5.35,7.72,-2.65}}, [1808]={{-4.55,-5.27,-2.96,-3.37},{-1.18,-0.44,1.12,0.96}}, [1900]={{-19.2,17.7,-17.7,19.1},{-18.2,13.8,-15.8,16.4},{-10.89,4.49,-8.29,6.19},{-8.15,2.53,-4.85,4.22},{1.89,-0.14,4.29,1.06},{24.47,13.75,26.47,14.85}}, [1903]={{-0.89,-4.45,0.91,-3.05}}, [1904]={{6.74,-10.74,8.44,-9.74},{9.49,-0.47,10.49,0.53}}, [1911]={{-1.85,-1.64,1.95,-0.04},{-0.27,-1.62,2.52,-0.22}}, [2001]={{-10.28,1.13,-7.59,2.53}}, [2002]={{1.82,1.38,4.12,3.78}}, [2003]={{-6.28,-0.08,-2.78,3.32}}, [2004]={{2.48,-4.8,4.27,-3}}, [2005]={{-1,-3.06,1.19,-1.46}}, [2006]={{3.26,2.05,5.66,4.05}}, [2100]={{2.14,18.54,3.74,19.84}}, [2104]={{-1.37,-26.39,1.23,-24.79}}, [2107]={{-4.35,-2.07,-1.66,-0.67}}, [2200]={{-20.94,13.95,-19.24,15.45},{5.72,14.98,7.12,16.28}}, [2202]={{-4,-4.57,-3,-3.57},{-3.1,3.26,-2.1,4.26}}, [2203]={{0.15,-1.65,1.15,-0.65}}, [4104]={{-3.36,-2.52,3.24,1.27}}, [4105]={{-17.53,18.97,-15.84,21.17},{10.54,-2.83,13.44,0.47},{10.64,-2.81,16.14,0.68}}, [4106]={{-0.45,-18,0.55,-17}}, [4107]={{-13.51,11,-12.51,12},{-9.99,6.7,-8.29,8.7}}, [4201]={{-13.05,-2,-10.15,1.29},{-1.45,-10.94,1.55,-6.15}}, [4202]={{-9.57,8.57,-7.07,11.47},{-5.63,-10.74,-2.43,-6.05},{-3.43,-2.3,-0.53,-0.01},{-1.45,-10.94,1.55,-6.15},{2.73,-10.37,5.13,-5.98}}, [4301]={{-12.46,-6.89,-9.86,-4.8},{8.37,-7.75,11.36,-4.75}}, [4302]={{-29.6,-76.28,-26.31,-72.49}}, [4306]={{-2.52,-1.22,-0.92,-0.22},{-0.82,1.08,0.78,2.08},{0.88,-1.22,2.48,-0.22}}, [4504]={{-3.36,-2.52,3.24,1.27},{-3.05,-5.34,3.94,-0.35}}, [4506]={{-3.01,-18.85,2.88,-16.85}}, [4507]={{-13.88,10.59,-10.88,13.09}}, [5101]={{-3.68,-24.81,-2.08,-23.11},{0.01,-38.75,9.7,-28.86}}, [5301]={{-1.4,-0.44,1.2,0.56}}, [5500]={{3.85,5.14,5.15,6.54}}, [5800]={{-8.09,4.14,-6.29,5.94},{9.36,-0.93,10.86,0.07}}, [5801]={{-6.04,-1.97,-1.85,1.63},{1.08,0.73,2.88,2.83}}, [6000]={{-7.19,-7.36,-4.99,-4.96},{-3.66,-9.36,-1.46,-6.96},{0.44,-0.29,2.64,2.1},{3.66,-3.52,6.25,-0.73}}, [6001]={{-3.36,-0.15,-0.86,2.25}}, [6101]={{-1.31,-10.79,1.29,-8.79}}, [6401]={{2.27,-4.19,4.97,-2.89}}, [6404]={{2,-7.08,4,-4.99}}, [6500]={{-1.68,-5.57,-0.28,-4.17}}, [7101]={{-22.42,-20.48,-19.52,-17.38},{-1.07,-13.27,1.02,-11.27},{2.23,-13.57,4.82,-11.37}}, [7105]={{5.39,-33.54,11.48,-25.65}}, [7301]={{15.23,-10.26,17.42,-7.96}}, [7303]={{-2.75,-32.76,-0.05,-31.76},{0.5,11.5,2.5,14}}, [7307]={{-3.87,-2.27,-2.37,-0.47},{-0.5,-6.09,0.5,-5.09}}, [7402]={{-49.49,-73.48,-46.6,-70.48},{-49.44,-49.39,-46.65,-46.49},{-49.3,-1.08,-46.4,1.52},{-1.87,-73.54,2.03,-70.14},{-1.68,-97.23,1.71,-94.33},{-1.53,-49.34,1.56,-46.25},{-1.26,-26.39,1.33,-22.89},{-0.63,0.13,0.57,1.53},{22.38,-97.41,25.58,-94.11},{22.63,-1.25,25.43,1.35},{46.4,-73.26,49.6,-70.06}}, [7403]={{-1.13,-1.91,0.97,-0.01}}, [7701]={{-1.01,3.87,0.79,5.97}}, [7703]={{-15.32,3.25,-13.42,5.44},{-12.53,0.75,-10.63,2.95},{-9.85,-1.28,-7.95,0.92}}, [7706]={{-6.22,-8.51,-3.62,-6.51},{-2.12,-17.75,0.08,-14.75},{2.99,0.64,4.99,3.73}}, [7709]={{10.75,-7.77,13.34,-5.17}}, [7808]={{-10.03,-19.79,-6.13,-17.29}}, [7900]={{-4.24,5.4,-2.65,6.7}}, [7901]={{-11.61,-14.54,-10.11,-13.24}}, [7902]={{9.24,-16.35,10.93,-15.05},{13.42,8.63,15.12,9.93},{17.83,-16.22,19.53,-14.92}}, [8201]={{-12.03,11.66,-10.64,13.26},{-11.46,0.26,-10.46,1.26},{4.36,7.2,5.36,8.2}}, [8208]={{3.17,3.43,5.27,6.72}}, [8400]={{-0.69,8.22,0.61,9.32}}, [8703]={{2.6,8.39,3.8,9.49}}, [9003]={{-2.08,-12.37,1.92,-8.48}}, [9007]={{-1.06,-8.04,0.93,-5.74}}, [16000]={{-2.5,-3.51,-1,-1.72}}, [16100]={{-2.4,-4.04,-1.2,-2.64}}, [20001]={{7.09,-8.82,8.89,-6.82}}, [20002]={{-96.96,-39.88,-95.26,-38.38},{-75.35,-71.88,-73.65,-69.98}}, [20003]={{2.92,-44.43,4.42,-42.93}}, [20004]={{34.18,23.09,35.88,24.59}}, [20010]={{20.58,-19.35,22.58,-17.55}}, [20011]={{-2.41,-3.62,-0.61,-1.82}}, [20012]={{-3.83,31.58,-2.03,33.38}}, [20015]={{-26.12,9.96,-24.62,11.36},{-26.07,8.12,-24.57,9.52}}, [20016]={{32.84,-35.26,34.44,-33.86}}, [20023]={{54.61,-35.93,56.31,-34.24}}, [20024]={{14.39,-4.24,16.29,-2.45}}, [20027]={{-94.39,-8.24,-92.59,-6.44}}, [20039]={{28.18,4.18,29.98,6.28}}, [20061]={{11.93,-34.63,13.83,-32.73}}, [20063]={{-25.69,6.55,-23.99,7.95},{41.14,60.09,42.94,61.89}}, [50101]={{-2.33,-1.9,-1.33,-0.9},{-0.4,-1.88,0.6,-0.98},{2.07,-2.05,3.67,-0.55},{3.12,4.99,4.12,5.99},{3.34,-3.94,5.74,-2.04}}, [50201]={{-2.33,-1.9,-1.33,-0.9},{-0.4,-1.88,0.6,-0.98},{2.07,-2.05,3.67,-0.55},{3.12,4.99,4.12,5.99},{3.34,-3.94,5.74,-2.04}}, [50301]={{-2.33,-1.9,-1.33,-0.9},{-0.4,-1.88,0.6,-0.98},{2.07,-2.05,3.67,-0.55},{3.12,4.99,4.12,5.99},{3.34,-3.94,5.74,-2.04}}, [50401]={{-2.33,-1.9,-1.33,-0.9},{-0.4,-1.88,0.6,-0.98},{2.07,-2.05,3.67,-0.55},{3.12,4.99,4.12,5.99},{3.34,-3.94,5.74,-2.04}}}
+-- Who sells what: people whose words open a shop, an inn, a church or the bank (from the game's
+-- scripts, <SHOP=..>, <INN>, <CHURCH>, <BANK>), at the spots they stand on (map id -> {x, z, what}).
+SERVICE_SPOTS = {[100]={{-11.13,4.95,"armour shop"}}, [104]={{-3.63,-1.35,"weapon shop"}}, [105]={{-1.62,-0.87,"armour shop"},{-1.86,0.38,"armour shop"}}, [107]={{0.99,3.03,"armour shop"},{1.02,3.61,"armour shop"},{1.67,4.49,"armour shop"}}, [108]={{1.02,-0.16,"item shop"}}, [109]={{0.17,-3.54,"church services"}}, [200]={{11.7,20.72,"armour shop"},{7.98,16.99,"weapon shop"},{1.9,10.4,"item shop"}}, [211]={{-3.08,-1.19,"inn"}}, [216]={{0,-2.15,"church services"}}, [219]={{4.35,3.68,"church services"}}, [406]={{1.73,-17.36,"church services"}}, [1102]={{-1.66,-1.81,"inn"}}, [1103]={{1.46,0.78,"weapon shop"}}, [1105]={{-1.04,-1.63,"inn"}}, [1106]={{0,-4.6,"church services"},{0,-3.47,"church services"}}, [1200]={{-10.39,-7.38,"shop"}}, [1202]={{0,-1.36,"church services"}}, [1203]={{2.06,4.19,"shop"},{-3.7,-0.02,"inn"}}, [1300]={{16.38,-7.96,"item shop"}}, [1301]={{5.95,4.34,"inn"}}, [1306]={{1.91,2.04,"armour shop"},{-1.89,2.04,"weapon shop"}}, [1307]={{0,-3.3,"church services"}}, [1500]={{11.35,16.33,"item shop"}}, [1501]={{1.54,5.47,"inn"},{-1.95,-3.57,"inn"},{-1.79,-0.94,"inn"},{-1.5,1.45,"inn"},{1.65,0.71,"inn"},{-0.4,1.84,"inn"}}, [1503]={{-1.14,-2.72,"item shop"}}, [1504]={{-0.26,-2.56,"weapon and armour shop"}}, [1506]={{0.04,-2.32,"church services"}}, [1800]={{-11.08,-9.93,"weapon and armour shop"},{-4.79,-13.48,"church services"},{11.5,21.31,"item shop"},{10.4,21.31,"item shop"}}, [1806]={{1.88,4.12,"inn"}}, [1808]={{-0.02,-1.4,"shop"}}, [1900]={{26.95,17.3,"item shop"},{-8.03,1.9,"weapon shop"},{-15.8,16.19,"armour shop"}}, [1902]={{3.09,-2.98,"armour shop"}}, [1903]={{0,-5.35,"church services"}}, [2001]={{7.82,0.43,"weapon shop"},{-8.85,-0.08,"armour shop"}}, [2002]={{4.17,3.66,"inn"}}, [2005]={{-0.09,-4.34,"church services"},{-3.65,0.3,"item shop"}}, [2100]={{3.93,26.9,"shop"}}, [2104]={{0.01,-27.78,"church services"}}, [2202]={{-0.62,3.53,"armour shop"},{-1.44,-4.28,"weapon shop"}}, [2203]={{0.69,-2.73,"item shop"}}, [2205]={{0,-4,"church services"}}, [2305]={{-0.05,-3.7,"item shop"}}, [2306]={{-2.67,-2.16,"weapon shop"}}, [2307]={{-1.76,-1.76,"armour shop"}}, [2309]={{0.03,-1.22,"church services"}}, [4106]={{0.07,-19.33,"church services"}}, [4201]={{-12.33,-0.57,"church services"}}, [4202]={{-2.98,-1.09,"inn"},{-0.56,17.85,"shop"},{1.91,7.41,"shop"}}, [4506]={{0,-19.5,"church services"}}, [5700]={{-6.21,7.06,"church services"},{-9.93,2.15,"item shop"}}, [5800]={{6.91,-2.16,"shop"}}, [5801]={{-3.87,-0.56,"shop"},{3.03,-1.72,"church services"},{0.19,1.66,"inn"}}, [15800]={{5.81,-4.7,"item shop"}}, [50101]={{5.63,5.4,"bank"}}, [50201]={{5.63,5.4,"bank"}}, [50301]={{5.63,5.4,"bank"}}, [50401]={{5.63,5.4,"bank"}}}
 function zone_from_table(o)
 	local list = TALK_ZONES[u16(MAPID)]
 	if not list then return nil end
@@ -5310,7 +5954,14 @@ local function start_walk()
 	if not it then say("Pick something on the list first.") return end
 	local px, _, pz = player_pos()
 	if not px then say("Cannot walk right now.") return end
-	if reach_mark and it.code == map_code() then reach_mark({ it }) end
+	if reach_mark and it.code == here_code() then reach_mark({ it }) end
+	-- a ladder, or something at another height that only a ladder leads to: walk onto the ladder,
+	-- climb it, then go on
+	do
+		local okl, lw = pcall(ladder_walk, it)
+		if okl and lw then if BEACON then BEACON = nil end return end
+		if not okl then log_line("ladder_walk: " .. tostring(lw)) end
+	end
 	if it.unreachable then say(unreachable_msg(it), true) return end
 	if BEACON then BEACON = nil end      -- an auto walk takes over from the beacon
 	-- a door the story keeps locked for now: no use walking into it (one with a keyhole: you
@@ -5320,7 +5971,7 @@ local function start_walk()
 	-- things bumped into on earlier walks (often a person who has since moved) are forgotten
 	local nv0 = nav_for()
 	if nv0 then nv0.bb = {} end
-	walk = { x = it.x, z = it.z, tx0 = it.x, tz0 = it.z, gy = it.y0 and (it.y0 + 1) or nil, label = it.label, obj = it.obj, posoff = it.posoff or 0x24, start = frame, code = map_code(), sx = px, sz = pz,
+	walk = { x = it.x, z = it.z, tx0 = it.x, tz0 = it.z, gy = it.y0 and (it.y0 + 1) or nil, label = it.label, obj = it.obj, posoff = it.posoff or 0x24, start = frame, code = here_code(), sx = px, sz = pz,
 	         best = 1e9, progress = frame, side = 1, side_until = 0, tries = 0, push = 0, exit = (it.kind == 0) or nil, place = place_key(),
 	         person = (it.obj and not it.thing and not it.item and not it.monster) or nil,
 	         monster = it.monster or nil, boss = it.boss or nil,
@@ -5393,6 +6044,27 @@ local function start_walk()
 			return
 		end
 	end
+	-- a chest, pot or barrel: stand square in front of it, a step away, and face it, so A opens
+	-- it (walking at it ended on a slant beside it, or, where the game lets you, on top of it)
+	if it.item and it.gkind ~= 9 and not it.leads_off then
+		local n = nav_ready()
+		local _, py = player_pos()
+		local best, bd = nil, 1e9
+		for _, o in ipairs({ { 0.95, 0 }, { -0.95, 0 }, { 0, 0.95 }, { 0, -0.95 } }) do
+			local x, z = it.x + o[1], it.z + o[2]
+			local h = n and floor_near(n, x, z, it.fy or py or 0, 1.0)
+			if h and clear_at3(n, x, z, h, 0.2) and not wall_between3(n, x, z, it.x, it.z, h) then
+				-- (nearest your side; one round the back of it costs the walk round)
+				local dd = math.sqrt((x - px) ^ 2 + (z - pz) ^ 2)
+				if wall_between3(n, px, pz, x, z, h) then dd = dd + 3 end
+				if dd < bd then best, bd = { x = x, z = z }, dd end
+			end
+		end
+		if best then
+			walk.x, walk.z, walk.face, walk.square = best.x, best.z, { it.x, it.z }, true
+			walk.face_msg = "In front of " .. it.label:gsub("%.+$", "") .. ". Press A."
+		end
+	end
 	-- someone behind a counter: go round to the front of it (never a monster: a metal slime
 	-- beside a table was walked to "across the counter" and never touched)
 	if it.obj and not it.nx and not it.monster and not it.boss then
@@ -5406,6 +6078,235 @@ local function start_walk()
 		end
 	end
 	say("Walking to " .. it.label .. ". Press any button to stop.", true)
+end
+-- Ladders on the way. Picking a ladder end walks onto it and climbs to the other end. Picking
+-- something at another height (a door down on Dourbridge's riverside walkway) that the map of
+-- walls cannot reach from here goes by the ladder whose ends are at your height and its.
+-- a run of ladders to something: which ladder to climb first, and which way. From where you
+-- stand, the ladder ends you can walk to; from the far end of each, what can be walked to there:
+-- the thing itself, or more ladder ends.
+-- Where you can walk from a spot (a ladder's end, or where you stepped off one), keeping as
+-- little room as a walk will squeeze through (Heights of Loneliness has a ledge path barely
+-- wider than you). Right at a ladder's end the region can come out as a scrap of the ledge's
+-- lip: try a few spots round it and keep the biggest.
+function reach_around(nv, x, y, z)
+	local best = nil
+	for _, o in ipairs({ { 0, 0 }, { 0.8, 0 }, { -0.8, 0 }, { 0, 0.8 }, { 0, -0.8 }, { 1.2, 0 }, { -1.2, 0 }, { 0, 1.2 }, { 0, -1.2 } }) do
+		for _, h in ipairs(floor_heights(nv, x + o[1], z + o[2])) do
+			if math.abs(h - y) < 0.7 then
+				local R = reach_region3(nv, x + o[1], h, z + o[2], {}, 40000, 0.2)
+				if R and (not best or R.count > best.count) then best = R end
+				break
+			end
+		end
+		if best and best.count >= 60 then break end
+	end
+	return best
+end
+function ladder_chain(ladders, it, ty, px, py, pz, mid)
+	local nv = nav_ready()
+	if not nv then return nil end
+	local function ok_at(R, x, y, z)
+		if not R then return false end
+		return reach_near3(R, nv, x, z, y) == true
+	end
+	local function same(a, b) return a and b and math.abs(a.x - b.x) < 0.5 and math.abs(a.z - b.z) < 0.5 end
+	-- (a ladder's end hangs over the edge, with no floor of its own height right under it: look
+	-- a step round it too)
+	local function ok_end(R, l, y)
+		if not R then return false end
+		for _, o in ipairs({ { 0, 0 }, { 0.8, 0 }, { -0.8, 0 }, { 0, 0.8 }, { 0, -0.8 }, { 1.2, 0 }, { -1.2, 0 }, { 0, 1.2 }, { 0, -1.2 } }) do
+			if reach_near3(R, nv, l.x + o[1], l.z + o[2], y) == true then return true end
+		end
+		return false
+	end
+	-- (where to stand at a ladder's end: on the floor beside it, the ladder itself hangs off an edge)
+	-- (from right at the end the region can come out as a scrap of the ledge's lip: try a few
+	-- spots round it and keep the biggest)
+	local function reach_from(l, y) return reach_around(nv, l.x, y, l.z) end
+	local Rp = (not mid) and reach_around(nv, px, py, pz) or nil
+	-- (you can walk there from here as things are: no ladders)
+	if Rp and ok_end(Rp, it, ty) then return nil end
+	local q, seen = {}, {}
+	for i, l in ipairs(ladders) do
+		if not same(l, it.last_ladder) then
+			for _, e in ipairs({ "bot", "top" }) do
+				local here = mid and same(mid, l) and ((e == "bot") == ((ty or py) > py)) or (not mid and ok_end(Rp, l, l[e]))
+				if here then q[#q + 1] = { i = i, up = (e == "bot"), first = i, firstup = (e == "bot") } end
+			end
+		end
+	end
+	local head = 1
+	while head <= #q and head <= 40 do
+		local e = q[head]
+		head = head + 1
+		local key = e.i .. (e.up and "u" or "d")
+		if not seen[key] then
+			seen[key] = true
+			local l = ladders[e.i]
+			-- (the end you are after is this ladder's own far end: one that leads off the map,
+			-- up to the next floor, has no floor here to stand on)
+			if same(l, it) and ty and math.abs((e.up and l.top or l.bot) - ty) < 0.5 then return ladders[e.first], e.firstup end
+			local Rf = reach_from(l, e.up and l.top or l.bot)
+			if ok_end(Rf, it, ty) then return ladders[e.first], e.firstup end
+			for j, l2 in ipairs(ladders) do
+				if j ~= e.i then
+					for _, e2 in ipairs({ "bot", "top" }) do
+						if ok_end(Rf, l2, l2[e2]) then q[#q + 1] = { i = j, up = (e2 == "bot"), first = e.first, firstup = e.firstup } end
+					end
+				end
+			end
+		end
+	end
+	return nil
+end
+function ladder_walk(it)
+	local ladders = ladder_list()
+	if not LADDER_CHAIN then it.ladder_hops, it.last_ladder = 0, nil end
+	if #ladders == 0 then return nil end
+	local px, py, pz = player_pos()
+	if not px then return nil end
+	local L, after = nil, nil
+	local mid = on_ladder(px, py, pz)
+	if it.gkind == 9 then
+		for _, l in ipairs(ladders) do
+			if math.abs(l.x - it.x) < 1.0 and math.abs(l.z - it.z) < 1.0 then L = l end
+		end
+		if not L then return nil end
+		-- (standing at the picked end already: climb to the other one)
+		-- the end to step on out of reach (a vine up from a ledge you are not on): first the
+		-- ladders that lead to that ledge, then this one
+		local other_y = (math.abs((it.fy or 0) - L.top) < 0.3) and L.bot or L.top
+		local nv = nav_ready()
+		local Rp = (not mid and nv) and reach_around(nv, px, py, pz) or nil
+		if Rp and reach_near3(Rp, nv, L.x, L.z, other_y) ~= true then
+			-- (a run of ladders up to the end you picked; the last one can be this ladder itself)
+			local okc, l1, u1 = pcall(ladder_chain, ladders, { x = L.x, z = L.z, last_ladder = it.last_ladder }, it.fy or other_y, px, py, pz, nil)
+			if not okc then log_line("ladder_chain: " .. tostring(l1)) end
+			if okc and l1 then
+				after = it
+				FIRST_UP = u1
+				L = l1
+			else
+				-- (no run of ladders leads there: not by this ladder from here either)
+				return nil
+			end
+		end
+	elseif (it.ladder_hops or 0) < 5 then
+		local ty = it.y0 or it.fy or gimmick_y_at(it.x, it.z)
+		if not ty or (not mid and not it.unreachable and math.abs(ty - py) < 2.0) then return nil end
+		-- marked out of reach, but just off a ladder onto the ledge it is on: walk straight there
+		-- (the reach worked out from the very edge of a ledge can be only a scrap of it)
+		if it.unreachable and not mid then
+			local nv0 = nav_ready()
+			local R0 = nv0 and reach_around(nv0, px, py, pz)
+			if R0 and reach_near3(R0, nv0, it.x, it.z, ty) == true then it.unreachable = nil return nil end
+		end
+		-- reachable as it is? then only by the ladder when that is far shorter (Dourbridge's
+		-- walkway is a long way round by the steps, or straight down the ladder)
+		local nv = nav_ready()
+		local function path_len(x0, y0, z0, x1, z1, y1)
+			if not nv then return nil end
+			local okp, path, rem = pcall(plan_path, nv, x0, y0, z0, x1, z1, y1, 0.45, true, 40000, {})
+			if not okp or not path or (rem or 99) > 1.6 then return nil end
+			local len, lx, lz = 0, x0, z0
+			for _, q in ipairs(path) do len = len + math.sqrt((q[1] - lx) ^ 2 + (q[2] - lz) ^ 2) lx, lz = q[1], q[2] end
+			return len
+		end
+		local walk_len = nil
+		if not mid and not it.unreachable then
+			walk_len = path_len(px, py, pz, it.x, it.z, ty)
+			if not walk_len then return nil end
+		end
+		local best = 1e9
+		for _, l in ipairs(ladders) do
+			local here_end = (math.abs(py - l.bot) < 1.5 or math.abs(py - l.top) < 1.5 or (mid and math.abs(mid.x - l.x) < 0.5 and math.abs(mid.z - l.z) < 0.5))
+			local there_end = math.abs(ty - l.bot) < 1.5 or math.abs(ty - l.top) < 1.5
+			if here_end and there_end then
+				-- (to the ladder, then on from its other end by the way the floor goes)
+				local far_y = math.abs(ty - l.bot) < math.abs(ty - l.top) and l.bot or l.top
+				local on = walk_len and path_len(l.x, far_y, l.z, it.x, it.z, ty) or math.sqrt((l.x - it.x) ^ 2 + (l.z - it.z) ^ 2)
+				local c = on and (math.sqrt((l.x - px) ^ 2 + (l.z - pz) ^ 2) + on) or 1e9
+				if c < best then best, L = c, l end
+			end
+		end
+		local best_one = L
+		local chain_up = nil
+		-- (out of reach as things are: go by what can really be walked to from each ladder's far
+		-- end; the heights alone can pick a ladder up to the wrong ledge)
+		if it.unreachable or mid then
+			L = nil
+			-- no one ladder joins the two: look for a run of them (Heights of Loneliness: a vine up
+			-- to a ledge, along it, then the next vine), and take the first
+			local okc, l1, u1 = pcall(ladder_chain, ladders, it, ty, px, py, pz, mid)
+			if okc and l1 then L, chain_up = l1, u1 end
+			if not okc then log_line("ladder_chain: " .. tostring(l1)) end
+			-- (only when the search failed outright: a search that found no way means none)
+			if not L and not okc then L = best_one end
+		end
+		if not L then return nil end
+		if walk_len and best > walk_len * 0.5 then return nil end
+		after = it
+		if chain_up ~= nil then FIRST_UP = chain_up end
+	else
+		return nil
+	end
+	local up = math.abs(py - L.bot) < math.abs(py - L.top)
+	if FIRST_UP ~= nil then up, FIRST_UP = FIRST_UP, nil end
+	if mid then
+		up = (after and ((after.y0 or after.fy or gimmick_y_at(after.x, after.z) or 0) > py)) or (not after and it.gkind == 9 and math.abs((it.fy or 0) - L.top) < 0.3)
+	end
+	-- (to the ladder's end at your own height: the other end is right above or below it)
+	walk = { x = L.x, z = L.z, tx0 = L.x, tz0 = L.z, gy = (up and L.bot or L.top) + 1, label = "the ladder", start = frame, code = here_code(), sx = px, sz = pz,
+	         best = 1e9, progress = frame, side = 1, side_until = 0, tries = 0, push = 0, place = place_key(),
+	         ladder = { L = L, up = up, after = after, since = nil }, item = it }
+	walk_resume = nil
+	if after then
+		say("Walking to " .. after.label .. ", by the ladder: " .. (up and "up" or "down") .. " it first. Press any button to stop.", true)
+	else
+		say("Walking to the ladder, to climb " .. (up and "up" or "down") .. ". Press any button to stop.", true)
+	end
+	return true
+end
+-- the ladder leg of a walk: near the ladder, walk onto it, then hold up or down to the other end
+function ladder_step(px, py, pz)
+	local lw = walk.ladder
+	local L = lw.L
+	local d = math.sqrt((L.x - px) ^ 2 + (L.z - pz) ^ 2)
+	local goal = lw.up and L.top or L.bot
+	local onit = py > L.bot + 0.25 and py < L.top - 0.25 and d < 1.3
+	-- (at the other end's height: keep pressing a moment so you step off the ladder)
+	if lw.since and math.abs(py - goal) < 0.3 then lw.at_goal = lw.at_goal or frame else lw.at_goal = nil end
+	if lw.at_goal and (d > 0.6 or frame - lw.at_goal > 20) then
+		-- at the other end
+		local after = lw.after
+		stop_walk()
+		if after then
+			after.ladder_hops = (after.ladder_hops or 0) + 1
+			after.last_ladder = { x = L.x, z = L.z }
+			sel_item = after
+			LADDER_CHAIN = true
+			start_walk()
+			LADDER_CHAIN = nil
+		else
+			say("At the " .. (lw.up and "top" or "bottom") .. " of the ladder.", true)
+		end
+		return true
+	end
+	if onit or lw.at_goal or (lw.since and d < 1.6) then
+		lw.since = lw.since or frame
+		if frame - lw.since > 60 * 10 then stop_walk("Could not climb the ladder. Walk into it, then hold " .. (lw.up and "up" or "down") .. ".") return true end
+		pcall(function() joypad.set(lw.up and { Up = true } or { Down = true }) end)
+		return true
+	end
+	-- next to the ladder's end at your height: walk straight onto it
+	if d < 1.6 then
+		lw.near = lw.near or frame
+		if frame - lw.near > 60 * 4 then stop_walk("At the ladder, but could not get onto it. Walk into it yourself, then hold " .. (lw.up and "up" or "down") .. ".") return true end
+		pcall(function() joypad.set(DIRS[dir_toward(L.x - px, L.z - pz) + 1]) end)
+		return true
+	end
+	return false
 end
 -- The way to press to face something square on (up, down, left or right on the screen), not on
 -- a slant: on a slant, A can go to whoever stands beside it instead
@@ -5467,7 +6368,9 @@ function walk_resume_step()
 	-- (and for the experience and gold messages after it, which are read as they come up)
 	if in_battle() or frame - battle_seen_frame < 150 or frame - last_dialogue_frame < 90 or fading()
 		or frame - USER_INPUT_FRAME < 60 or frame - LAST_SAY_FRAME < 100 then return end
-	if map_code() ~= r.code or frame - r.frame > 60 * 120 or SKILL_UI_FRAME > r.frame then walk_resume = nil return end
+	-- (the gold and experience box can still be up, waiting for A: not until you can walk)
+	if u8(0x02109DA4) ~= 1 then return end
+	if here_code() ~= r.code or frame - r.frame > 60 * 120 or SKILL_UI_FRAME > r.frame then walk_resume = nil return end
 	walk_resume = nil
 	sel_item = r.it
 	start_walk()
@@ -5477,13 +6380,18 @@ local function walk_step(host_pressed)
 	-- (not after walking into a monster: that battle was the point)
 	local function keep_resume() if walk and walk.item and not walk.monster and (frame - walk.start) > 60 then walk_resume = { it = walk.item, code = walk.code, frame = frame } end end
 	if host_pressed then keep_resume() stop_walk("Stopped.") return end
-	if map_code() ~= walk.code or (walk.place and place_key() ~= walk.place) then stop_walk() return end   -- went through a door
+	if here_code() ~= walk.code or (walk.place and place_key() ~= walk.place) then stop_walk() return end   -- went through a door
 	if in_battle() or frame - last_dialogue_frame < 10 then
 		if in_battle() then keep_resume() if walk_resume then walk_resume.battle = true end end
 		stop_walk() return
 	end
-	local px, _, pz = player_pos()
+	local px, py_l, pz = player_pos()
 	if not px then stop_walk() return end
+	if walk.ladder then
+		local okl, done = pcall(ladder_step, px, py_l, pz)
+		if not okl then log_line("ladder: " .. tostring(done)) stop_walk() return end
+		if done then return end
+	end
 	if walk.obj then                                                     -- people move: follow them
 		local x, z = s32(walk.obj + walk.posoff) / 4096, s32(walk.obj + walk.posoff + 8) / 4096
 		if math.abs(x) < 2000 and math.abs(z) < 2000 then walk.x, walk.z = x, z end
@@ -5498,7 +6406,11 @@ local function walk_step(host_pressed)
 	if WALK_DEBUG and frame % 6 == 0 then
 		local pts = {}
 		for k, q in ipairs(walk.path or {}) do if k >= (walk.pi or 1) then pts[#pts + 1] = string.format("(%.1f,%.1f)", q[1], q[2]) end end
-		log_line(string.format("walk pos %.2f %.2f stage %s tgt %.2f %.2f rem %s push %s path %s", px, pz, tostring(walk.stage), walk.x, walk.z, tostring(walk.rem), tostring(walk.pushing and walk.pushing.i), table.concat(pts, " ")))
+		local _, ydbg = player_pos()
+		local gotpad = ""
+		pcall(function() local g = joypad.get() for k, v in pairs(g or {}) do if v == true and #k < 6 then gotpad = gotpad .. k .. "+" end end end)
+		log_line(string.format("y %.2f got %s ", ydbg or -99, gotpad) .. string.format("walk pos %.2f %.2f stage %s tgt %.2f %.2f rem %s push %s dir %s ax %s path %s", px, pz, tostring(walk.stage), walk.x, walk.z, tostring(walk.rem), tostring(walk.pushing and walk.pushing.i), tostring(walk.lastdir), (function() local a, b = screen_axes() return string.format("%.2f,%.2f", a, b) end)() .. " pad " .. (function() local t = {} for k, v in pairs(LAST_PAD or {}) do if v then t[#t + 1] = k end end return table.concat(t, "+") end)(), table.concat(pts, " ")))
+		walk.lastdir = nil
 	end
 	if walk.pushing then exit_push(walk, px, pz, dx, dz, d) return end
 	-- in front of the door (or as near to the spot in front as the route goes: the spot in front
@@ -5572,12 +6484,31 @@ local function walk_step(host_pressed)
 		-- (across a counter, the talk only reaches straight across: get right in front of them)
 		-- next to someone: turn to them, so A talks to them
 		if walk.obj and not walk.face then walk.face = { walk.x, walk.z } walk.face_msg = "Arrived at " .. walk.label .. "." end
+		if walk.face and walk.square and not walk.settled then
+			-- (in front of a chest: let go and let the game catch up first, it runs a moment
+			-- behind the pad, then step back to the spot if that carried you past it)
+			walk.settle = walk.settle or { at = frame, x = px, z = pz, still = frame }
+			local st = walk.settle
+			if math.abs(px - st.x) + math.abs(pz - st.z) > 0.02 then st.x, st.z, st.still = px, pz, frame end
+			if frame - st.still < 12 and frame - st.at < 75 then return end
+			walk.settle = nil
+			if d > 0.45 and (walk.resettle or 0) < 3 then
+				walk.resettle = (walk.resettle or 0) + 1
+				walk.path, walk.co = nil, nil
+				walk.fbest, walk.fprog = nil, nil
+			else
+				walk.settled = true
+			end
+			if not walk.settled then return end
+		end
 		if walk.face then
 			-- turn to face them across the counter
 			walk.face_end = walk.face_end or frame + 10
 			if frame < walk.face_end then
 				local fx, fz = walk.face[1] - px, walk.face[2] - pz
-				pcall(function() joypad.set(DIRS[dir_toward(fx, fz) + 1]) end)
+				-- (a chest: straight at it, not on a slant)
+				local fd = walk.square and cardinal_dir(fx, fz) or dir_toward(fx, fz)
+				pcall(function() joypad.set(DIRS[fd + 1]) end)
 				return
 			end
 			stop_walk(walk.face_msg or ("Arrived at " .. walk.label .. ", across the counter. Press A to talk.")) return
@@ -5601,7 +6532,8 @@ local function walk_step(host_pressed)
 		if d < 25 and frame >= (walk.nodirect or 0) and not walk.door then
 			local py0 = select(2, player_pos())
 			nv.py = py0
-			if (not walk.gy or not py0 or math.abs(walk.gy - 1 - py0) < 1.0) and line_ok(nv, px, pz, walk.x, walk.z, 0.3) then
+			if walk.things == nil then walk.things = (not walk.obj and not walk.monster) and things_in_way(walk.tx0, walk.tz0, px, pz) or false end
+			if (not walk.gy or not py0 or math.abs(walk.gy - 1 - py0) < 1.0) and line_ok(nv, px, pz, walk.x, walk.z, 0.3, walk.things or nil) then
 				if not walk.direct then walk.direct, walk.dbest, walk.dprog = true, d, frame end
 				if d < walk.dbest - 0.2 then walk.dbest, walk.dprog = d, frame end
 				if frame - walk.dprog < 45 then
@@ -5625,7 +6557,7 @@ local function walk_step(host_pressed)
 				local sy = select(2, player_pos())
 				local gy = walk.gy
 				walk.co = coroutine.create(function()
-					local p, rem = plan_path(nv, sx, sy, sz, gx, gz, gy, 0.45, true, 20000, avoid)
+					local p, rem = plan_path(nv, sx, sy, sz, gx, gz, gy, 0.45, true, 40000, avoid)
 					-- a narrow way (between a wall and a stair rail): try again keeping less room
 					if rem > 1.0 then
 						local p2, rem2 = plan_path(nv, sx, sy, sz, gx, gz, gy, 0.3, true, 20000, avoid)
@@ -5633,7 +6565,7 @@ local function walk_step(host_pressed)
 					end
 					-- a narrow winding stair (Brigadoom's eastern tower): less room still (only for
 					-- somewhere near: out in a big field each try is a long search)
-					if rem > 1.0 and (gx - sx) ^ 2 + (gz - sz) ^ 2 < 400 then
+					if rem > 1.0 and (gx - sx) ^ 2 + (gz - sz) ^ 2 < 1600 then
 						local p2, rem2 = plan_path(nv, sx, sy, sz, gx, gz, gy, 0.2, true, 20000, avoid)
 						if rem2 < rem - 0.4 then p, rem = p2, rem2 end
 					end
@@ -5647,9 +6579,25 @@ local function walk_step(host_pressed)
 			local ok, p, rem = plan_resume(walk.co)
 			if not ok then
 				walk.nopath, walk.co, walk.stale = true, nil, nil
+			elseif coroutine.status(walk.co) == "dead" and walk.stale and walk.path and walk.path[walk.pi] and (rem or 0) > (walk.rem or 0) + 2 then
+				-- (worked out again because they moved, and this time the search gave out before
+				-- getting there: keep the route you are on, which does)
+				walk.co, walk.stale = nil, nil
+				walk.goal = { walk.x, walk.z }
 			elseif coroutine.status(walk.co) == "dead" then
 				walk.co, walk.path, walk.pi, walk.wbest, walk.wprog, walk.rem = nil, p or {}, 1, 1e9, frame, rem or 0
 				walk.stale = nil
+				-- (the route was worked out over a few frames while you kept walking: start from
+				-- the part of it you have got to, not from where you were, which is behind you)
+				do
+					local P = walk.path
+					local function dd(a, x, z) return math.sqrt((a[1] - x) ^ 2 + (a[2] - z) ^ 2) end
+					while P[walk.pi + 1] and dd(P[walk.pi], px, pz) < 3
+						and dd(P[walk.pi + 1], px, pz) <= dd(P[walk.pi], P[walk.pi + 1][1], P[walk.pi + 1][2]) + 0.3 do
+						walk.pi = walk.pi + 1
+					end
+				end
+				walk.wpx, walk.wpz = px, pz
 				walk.plan_d = math.sqrt((walk.x - px) ^ 2 + (walk.z - pz) ^ 2)
 				walk.seg0 = { px, pz }
 				walk.checked_from = frame
@@ -5677,16 +6625,32 @@ local function walk_step(host_pressed)
 				local ahead = math.min(L, math.max(0, t) + 0.5)
 				aimx, aimz = s0[1] + ax / L * ahead - px, s0[2] + az / L * ahead - pz
 			end
-			if wd < walk.wbest - 0.2 then walk.wbest, walk.wprog = wd, frame end
+			if wd < walk.wbest - 0.2 then walk.wbest, walk.wprog, walk.wpx, walk.wpz = wd, frame, px, pz end
 			if frame - walk.wprog > 30 then
 				-- something the walls do not show is in the way: remember it and plan around it
+				-- (only when you have stood still against it: sliding along a slanted wall, or round
+				-- a bend, gets no nearer for a moment without anything being there)
 				walk.replans = (walk.replans or 0) + 1
-				if walk.replans > 12 then walk.nopath = true return end
-				nav_block(nv, px + wx / math.max(wd, 0.01) * 0.8, pz + wz / math.max(wd, 0.01) * 0.8, 0.5)
+				-- (stuck over and over: say so and stop, rather than feel along the walls, which in a
+				-- town wanders in circles or in through someone's door)
+				if walk.replans > 12 then
+					local label, tx, tz = walk.label, walk.x, walk.z
+					stop_walk()
+					say("Stuck. " .. label:gsub("^%l", string.upper) .. " is " .. directions_to(tx, tz) .. ". Walk a few steps another way, then try again.", true)
+					return
+				end
+				local moved = walk.wpx and math.sqrt((px - walk.wpx) ^ 2 + (pz - walk.wpz) ^ 2) or 0
+				-- (nor in the first second: setting off can take a moment)
+				if moved < 0.5 and frame - walk.start > 60 then
+					-- (small: a narrow way past it must stay open, as Dourbridge's slanting lane under
+					-- the bridge, where a post stands in the near half of it)
+					nav_block(nv, px + wx / math.max(wd, 0.01) * 0.6, pz + wz / math.max(wd, 0.01) * 0.6, 0.3)
+				end
 				walk.path = nil
 				return
 			end
-			pcall(function() joypad.set(DIRS[dir_toward(aimx, aimz) + 1]) end)
+			walk.lastdir = dir_toward(aimx, aimz)
+			pcall(function() joypad.set(DIRS[walk.lastdir + 1]) end)
 			return
 		end
 		-- the route is done: the last bit is straight
@@ -7839,7 +8803,7 @@ local function handle_pad_combos(k)
 	if pad_edge(k, DPAD.up) then step_nearby(-1) end
 	if pad_edge(k, L3_NAMES) then if walk then stop_walk("Stopped.") else start_walk() end end
 	if pad_edge(k, R3_NAMES) then
-		if BEACON or (sel_item and sel_item.code == map_code()) then beacon_toggle()
+		if BEACON or (sel_item and sel_item.code == here_code()) then beacon_toggle()
 		else say("Pick something on the list first.") end
 	end
 	if pad_edge(k, Y_NAMES) then
@@ -7856,7 +8820,7 @@ counter_route = false
 function route_request(beacon)
 	local it = sel_item
 	if not it then say("Pick something on the list first.") return end
-	if it.code and it.code ~= map_code() then say("Pick something here first.") return end
+	if it.code and it.code ~= here_code() then say("Pick something here first.") return end
 	local px, py, pz = player_pos()
 	if not px then say("Cannot plan a route right now.") return end
 	local nv = nav_for()
@@ -7900,7 +8864,7 @@ function route_request(beacon)
 		co = coroutine.create(function()
 			local p, rem = plan_path(nv, px, py, pz, gx, gz, it.y0 and (it.y0 + 1) or nil, 0.45, true, 20000, avoid)
 			for _, cl in ipairs({ 0.3, 0.2 }) do
-				if rem > 1.0 and (gx - px) ^ 2 + (gz - pz) ^ 2 < 400 then
+				if rem > 1.0 and (gx - px) ^ 2 + (gz - pz) ^ 2 < 1600 then
 					local p2, rem2 = plan_path(nv, px, py, pz, gx, gz, it.y0 and (it.y0 + 1) or nil, cl, true, 20000, avoid)
 					if rem2 < rem - 0.4 then p, rem = p2, rem2 end
 				end
@@ -8012,7 +8976,7 @@ function beacon_plan(b, nv, px, py, pz)
 	b.co = coroutine.create(function()
 		local p, rem = plan_path(nv, px, py, pz, gx, gz, gy, 0.45, true, 20000, avoid)
 		for _, cl in ipairs({ 0.3, 0.2 }) do
-			if rem > 1.0 and (gx - px) ^ 2 + (gz - pz) ^ 2 < 400 then
+			if rem > 1.0 and (gx - px) ^ 2 + (gz - pz) ^ 2 < 1600 then
 				local p2, rem2 = plan_path(nv, px, py, pz, gx, gz, gy, cl, true, 20000, avoid)
 				if rem2 < rem - 0.4 then p, rem = p2, rem2 end
 			end
@@ -8029,7 +8993,7 @@ function beacon_start(it, gx, gz, nv, avoid, counter)
 	local px, py, pz = player_pos()
 	walk = nil                 -- the beacon takes over from an auto walk: you walk yourself now
 	BEACON = { it = it, label = it.label, gx = gx, gz = gz, gy = it.y0 and (it.y0 + 1) or nil, avoid = avoid, counter = counter,
-	           code = map_code(), path = nil, pi = 1, next_knock = frame, best = 1e9, progress = frame,
+	           code = here_code(), path = nil, pi = 1, next_knock = frame, best = 1e9, progress = frame,
 	           obj = (not counter) and it.obj or nil, posoff = it.posoff or 0x24, moved = frame }
 	beacon_plan(BEACON, nv, px, py, pz)
 	say("Beacon to " .. it.label .. ".", true)
@@ -8037,7 +9001,7 @@ end
 function beacon_step()
 	local b = BEACON
 	if not b then return end
-	if map_code() ~= b.code then beacon_stop() return end
+	if here_code() ~= b.code then beacon_stop() return end
 	local px, py, pz = player_pos()
 	if not px then return end
 	-- quiet while someone talks, a menu is open, a scene plays or a battle is on; on again after
@@ -8627,12 +9591,14 @@ while true do
 		PT("watch_events") if frame % 15 == 0 then watch_events() end
 		PT("mark_searched")
 		if pad.a and not pad_prev_a2 and not in_battle() and frame - last_menu_frame > 30 then pcall(mark_searched) end
+		if SEARCH_PENDING then pcall(confirm_searched) end
 		pad_prev_a2 = pad.a
 		PT("read_name_entry") read_name_entry()
 		PT("track_map") track_map()
 		PT("guide_tick") guide_tick()
 		PT("alerts") if not walk then alerts(pad) end
 		PT("handle_keys") handle_keys()
+		pcall(watch_tricks, pad)
 		PT("walk_step") walk_step(controller_pressed)
 		walk_resume_step()
 		PT("route_step") route_step()

@@ -17,7 +17,7 @@ ROM with its BUILD.bat or its installer (github.com/sackchief/dqix-enhanced). Th
    it is), adds the mod to it, builds the game again (a few minutes) and puts the mod in its
    own folder, "DQ9 access" in your Documents. Your save and settings are not touched.
 3. Run Dragon Quest IX as usual (your shortcut, or dqix.exe in the game folder). After a moment
-   you hear "Dragon Quest 9 access 0.53 for the PC version is running. Press K for keys."
+   you hear "Dragon Quest 9 access 0.54 for the PC version is running. Press K for keys."
 
 You can run "Install DQ9 Access.bat" again at any time (there is a copy in the DQ9 access
 folder): for example after updating the PC version itself, which builds the game again
@@ -576,3 +576,140 @@ need to run the installer again.
   to it.
 - After you use an item on someone, the windows closing one after another no longer read the
   menus again ("To who? lebon", "Everyday Items. retro", "To who? lebon"...).
+
+CHANGES IN 0.54
+---------------
+This version changes only the mod's own files: it updates itself when the game starts, with no
+need to run the installer again.
+- People with the same name get a number each: "priest 1", "priest 2", "priest 3". The same
+  person keeps the same number while you are there, wherever they are in the list.
+- Picking a monster to attack reads only the one the arrow is on, with its place among all the
+  monsters: "Chimaera A, 1 of 3", then left and right "Chimaera B, 2 of 3", and down "Lost
+  soul, 3 of 3". Before, a group was read all at once ("Chimaera A and B, 1 of 2").
+- Party tricks. Misc., Assign Party Tricks now says which button each row is for: "B and up:
+  Air Punch", "B and right: empty", ... "B and down, 2nd trick" (down can do up to 4 tricks in a
+  row; the others do one each). The list of tricks to pick from says "Pick a trick for B and
+  right" when it opens, "not learned yet" for the question marks, and "nothing, clears the row"
+  for the dashes at the end of page 2.
+- Out in the world, hold B and press a direction on the D-pad to do your party tricks: the mod
+  says the trick (or tricks, for down) as the game does them, or that nothing is set for that
+  direction.
+- Tower of Trades walkthrough (the guide key, or LT + Back): outside the door it says which
+  button your Bow party trick is on and how to open the door with it (or how to put Bow on a
+  button first), then a step by step guide for each of the seven floors and the boss, the Master
+  of Nu'un. The tower's stairs are named by floor and direction ("stairs up to the 4th floor,
+  north west"), the door is "tower door, it opens with the Bow party trick", and the floors'
+  names were one floor off (the 2nd floor was called level 3).
+- Auto walk and the beacon now go round other chests, pots and barrels on the way to the one you
+  picked. Before, going to a chest in a row of chests walked into the one next to it and got
+  stuck there.
+- The Tower of Trades' floors all share one map file, so the mod took them for one place: stairs
+  on the 3rd and 4th floors got the 1st floor's names, and something picked on one floor could be
+  walked to on another. Each floor is now its own place.
+- After a battle, auto walk carries on only once the gold and experience box has closed, so the
+  press that closes it no longer stops the walk again.
+- Spells & Abilities: moving through a party member's spells now reads each spell's name, with
+  what it costs and how much MP they have ("Heal, 2 MP, you have 0, not enough", "Zoom, no MP
+  needed"), then its description. Before, only the descriptions were read after the first spell.
+- "Tower of Trades -???" is read as just "Tower of Trades".
+- Ladders. What was called "something to search" is a ladder: the list now says "ladder, top end,
+  it goes down" or "ladder, bottom end, it goes up". Auto walk to a ladder end walks onto the
+  ladder and climbs to it. Auto walk to something at another height that a ladder reaches far
+  sooner than the long way round (Dourbridge's doors down on the walkway by the river, from the
+  bridge) goes down or up the ladder first, then on to it. Starting a walk while partway up a
+  ladder climbs on toward where you are going instead of getting stuck. (On a ladder yourself:
+  up on the D-pad climbs, down goes down.)
+- Dourbridge: the rooms under the bridge are named "Item shop door, under the bridge on the
+  right" and "Bar door, under the bridge on the left", not "Item shop on Right Under Bridge door".
+- Coming out of the Tower of Trades says "Tower of Trades, outside", not "Newid Isle, tower door,
+  it opens with the Bow party trick".
+- Shopkeepers, innkeepers, priests and bank clerks say what they are in the people list:
+  "weapon and armour shop, big man in a horned helmet", "item shop, old man with a walking stick",
+  "church services, hooded man", "inn, ...". (Worked out from the game's own scripts: whoever's
+  words open a shop, an inn, a church or the bank, where they stand.)
+- Dourbridge's item shop: the door and the stairs at the back are in a shut-off back room. They
+  now say so: the room is reached by the shop's upper door outside, which opens with the
+  Ultimate Key, and the stairs lead down to the secret shop.
+- Auto walk keeps clear of house doors on the way to someone, so it no longer walks in through a
+  door that is beside them (the sailor by Dourbridge's bar).
+- Auto walk steers much better (worked out by driving it round Dourbridge). The D-pad goes by
+  the map, up being north, but the mod was working out "up" from where the camera hung, which
+  swings after you; under Dourbridge's bridge it was a quarter of the way off, so walks zigzagged,
+  turned back and gave up. Directions you hear ("5 steps up") are steadier for the same reason.
+- A walk that had to work its route out again while you kept walking (someone moving, a bend)
+  started the new route from where you had been, behind you, and walked back. It now carries on
+  from where you are. A new route that gets less far than the one you are on is not taken.
+- Setting off, and sliding along a slanting wall, no longer count as "something in the way": the
+  marks those left made narrow lanes look shut, and walks went the long way round or stopped.
+- A walk stuck over and over now stops and says so. Before, it felt its way along the walls,
+  which in Dourbridge went round in circles and in through someone's door.
+- The ladder leg of a walk heads for the ladder's end at your own height.
+- Auto walk could not leave a room whose door leads to another room of the same building
+  (Alltrades Abbey's abbot's room): the new keep-clear-of-house-doors rule shut that door too. It
+  now only keeps clear of doors that lead out to somewhere else.
+- Yes or no questions were not read in some places (the church's "shall I write it in the
+  adventure log?"). The game keeps two yes / no boxes; once the mod had found the one Quick Save
+  uses, it never looked at the other one again. It now looks for the one that is showing.
+- Heights of Loneliness walkthrough (the guide key, or LT + Back): the outside, every floor, the
+  caves off floor 3, the way out at the top, Zere Rocks and the boss, Garth Goyle, with what to
+  do afterwards. The floors are named "Heights of Loneliness, floor 2" (they were one floor off),
+  and the exits say where they go ("first hole, into a cave, to the kitty litter chest", "door at
+  the end of the long vine, on to floor 6").
+- Auto walk climbs a run of ladders or vines. Pick a chest on a ledge two vines up, or the vine
+  at the top that leads to the next floor, and it walks to the first vine, climbs it, walks
+  along that ledge to the next one and climbs that, and so on to what you picked. Before, it
+  only managed one ladder, and on the Heights of Loneliness' second floor it headed for a vine
+  it could not get to.
+- A ladder or vine that leads to another floor is in the Exits list, named where it goes ("vine
+  up to floor 3"; elsewhere "ladder up to the next floor" or "down to the floor below"). Auto
+  walk to it climbs any vines on the way, then up it.
+- At the top of a vine, auto walk turned round and went back down it instead of on to the chest
+  on that ledge (the seed of deftness on the Heights of Loneliness' second floor): from the very
+  edge of the ledge it worked out only a scrap of the ledge as where you could walk. It now looks
+  from a few spots round where you step off.
+- Just off the top of a vine, auto walk could not work out a route ("As close as you can get"
+  a step from the vine, on the way to the vine up to the Heights of Loneliness' third floor): the
+  ledge's edge right in front of you counted as a wall. A route now starts from the spots round
+  you as well.
+- Things that no run of ladders reaches no longer say "by ladders", and auto walk no longer sets
+  off up a ladder that does not lead there (the kitty litter chest on the Heights of Loneliness'
+  third floor sent you to the far east vine). That chest now says it is reached through the first
+  hole, into a cave, in the exits list.
+- Ladders whose ends hang out over a drop, with no floor right under them (floor 3's vines), are
+  now found by auto walk's ladder routes: walking to the first hole from the mini medal ledge goes
+  down the vine first.
+- Bloomingdale was called "Basement on Right Under Bridge" (a name from Dourbridge's list), so
+  its way in from outside was "stairs down to the basement, under the bridge on the right", and
+  so was the way out of its inn. It is now "Bloomingdale", and the field round it is "fields
+  round Bloomingdale", so arriving in the town is announced.
+- A building's floors read better: "Inn door", not "Inn Lv 1 door"; "Bloomingdale, Inn", then
+  "stairs to Inn, floor 2" and "Inn, basement".
+- Zere Rocks: the slime you talk to before the boss was missing from the people list (the game
+  places it like a story character). It is now there as "slime", in the north east house, just
+  in front of you as you come in.
+- Zere Rocks' places have proper names: "door to the north east house, where the slime is",
+  "stairs down to the cellar, beside the north east house" (the ghost, after the boss),
+  "doorway by the big stone tree" and "way back down to the Heights of Loneliness". Before, they
+  had names from Angel Falls ("Petra's House", "Petra's House B1", "Cave"). The walkthrough says
+  the same.
+- Places whose own name says where they are no longer say it twice: "Heights of Loneliness,
+  outside", not "Heights of Loneliness - L7, Heights of Loneliness, outside".
+- The outside of a place (Zere Rocks, the Heights of Loneliness) now uses the mod's own names for
+  its exits; they were only used inside.
+- A few object names were cut short: "statue of a beautiful large bird with its wings spread
+  wide", "peculiar sculpture that sort of looks like a person".
+- Auto walk to a chest, pot or barrel now stands you square in front of it, a step away (on
+  your side of it), waits for the game to catch up with the pad, steps back if it carried you
+  past, and turns you straight at it, then says "In front of treasure chest. Press A." Before,
+  it aimed at the middle of the chest and could end on a slant beside it, where A does nothing.
+- A chest is only counted as opened once the game says something after you press A by it.
+  Pressing A beside one that did not open marked it "opened" anyway.
+- Auto walk from a ledge to a chest on another ledge at much the same height (from the blue
+  chest to the seed of deftness on the Heights of Loneliness' second floor) said there was no
+  way there. It now goes down the vine and up the other one.
+- Something up a ladder (or an exit down one) says "higher up, by ladders" instead of "no way
+  there from here", and
+  the Items list says "9 of them on other levels, up or down ladders or another way" where there
+  are ladders, not "in other rooms".
+- Auto walk squeezes along narrower ledges further off (the path round the second floor of the
+  Heights of Loneliness is barely wider than you).
