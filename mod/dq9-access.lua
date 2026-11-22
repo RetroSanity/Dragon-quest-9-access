@@ -9323,9 +9323,14 @@ function misc_step()
 	local cursor, count = misc_menu_now()
 	if not cursor then
 		if MS.open or MS.on_item then MS.open, MS.on_item = false, false end
-		MS.inject = nil
+		MS.inject, MS.was_cursor = nil, nil
 		return
 	end
+	-- where the game's cursor was before this frame: the press that moves it onto the last
+	-- item (Volume Settings down to Quick Save) can be seen here only once the cursor has
+	-- already moved, and must not also go on to Mod settings
+	local was_cursor = MS.was_cursor
+	MS.was_cursor = cursor
 	local ok, raw = pcall(joypad.getraw)
 	if not ok or type(raw) ~= "table" then return end
 	local edge = {}
@@ -9395,7 +9400,7 @@ function misc_step()
 	if cursor == last then hold.Down = false end
 	if cursor == 0 then hold.Up = false end
 	if next(hold) then pcall(joypad.set, hold) end
-	if (cursor == last and edge.Down) or (cursor == 0 and edge.Up) then
+	if (cursor == last and edge.Down and was_cursor == last) or (cursor == 0 and edge.Up and was_cursor == 0) then
 		used(edge.Down and "Down" or "Up")
 		MS.on_item = true
 		ms_say_item(count)
