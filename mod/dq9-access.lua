@@ -1606,7 +1606,14 @@ local function read_title()
 	-- "Quick save log found ...": its own choice (Load quick save data / Cancel) is up, not the title menu
 	-- (nor while the game says it is "Creating backup" on the way into the adventure)
 	local pg = cstring(u32(PAGE_START), 200):lower()
-	if pg:find("quick save", 1, true) or pg:find("backup", 1, true) then title_last, title_frames = nil, 0 return end
+	if pg:find("quick save", 1, true) or pg:find("backup", 1, true) then
+		title_last, title_frames = nil, 0
+		-- its choice is read by the screen reader (read_ui_screen), which only looks for a new
+		-- list after a message that ends in one: this message does not, so ask it to look
+		if pg ~= title_quick_page then title_quick_page, UI_SAID_RESET = pg, frame end
+		return
+	end
+	title_quick_page = nil
 	-- Which of the two menus is up: a log on the cartridge leaves its hero's name in memory, but
 	-- deleting the log from this menu does not clear the name, so remember that it was deleted.
 	if last_said == "Adventure log deleted." and not title_deleted then title_deleted, title_moved, title_rebuild = true, nil, true end
