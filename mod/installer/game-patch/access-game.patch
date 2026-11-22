@@ -324,3 +324,176 @@ index 8e5b990..75042ab 100644
  # optional files: the built-in Wi-Fi server's downloads and DQVC schedule
  for src in extras/wfc wfc; do
      for g in "$src"/*/; do
+diff --git a/runtime/menu_ingame.c b/runtime/menu_ingame.c
+index bd2b8b4..f03ecb8 100644
+--- a/runtime/menu_ingame.c
++++ b/runtime/menu_ingame.c
+@@ -12,6 +12,7 @@
+ #include "menu.h"
+ #include "text.h"
+ #include "controls.h"
++#include "speech.h"
+ #include <stdlib.h>
+ #include <string.h>
+ #include <stdio.h>
+@@ -49,6 +50,7 @@ static struct {
+ void ingame_menu_set_shells(const char* const* names, int n) { g_shells = names; g_nshells = n; }
+ void ingame_menu_set_values(int (*get)(int id, char* out, size_t n), void (*adjust)(int id, int dir)) { g_val_get = get; g_val_adj = adjust; }
+ static int pages_open(void);
++static void menu_speech_new_page(void);   /* (speech, below) */
+ int ingame_menu_is_open(void) { return g_open || g_dlg.on || pages_open(); }
+ 
+ void ingame_dialog_begin(const char* title, const char* text, const char* const* buttons, int n, int def, int cancel, const char* check, int checked) {
+@@ -61,7 +63,7 @@ void ingame_dialog_begin(const char* title, const char* text, const char* const*
+     else for (int i = 0; i < n; i++) snprintf(g_dlg.btn[i], 64, "%s", buttons[i]);
+     g_dlg.n = n; g_dlg.sel = def >= 0 && def < n ? def : 0; g_dlg.cancel = cancel;
+     if (check) { g_dlg.has_check = 1; snprintf(g_dlg.check, sizeof g_dlg.check, "%s", check); g_dlg.checked = checked != 0; }
+-    g_dirty = 1;
++    g_dirty = 1; menu_speech_new_page();
+ }
+ void ingame_dialog_update(const char* title, const char* text) {     /* new words, the same buttons and choice (a live message) */
+     if (!g_dlg.on) return;
+@@ -129,9 +131,10 @@ static void fix_sel(int dir) {
+ void ingame_menu_open(void) {
+     if (g_open) return;
+     g_open = 1; g_depth = 0; g_sel[0] = 0; g_top[0] = 0;
+-    build_rows(); fix_sel(1); g_dirty = 1;
++    build_rows(); fix_sel(1); g_dirty = 1; menu_speech_new_page();
+ }
+-void ingame_menu_close(void) { g_open = 0; g_dirty = 1; }
++static void menu_speech_closed(void);
++void ingame_menu_close(void) { g_open = 0; g_dirty = 1; menu_speech_closed(); }
+ 
+ static void move(int dir) {
+     if (!g_nrows) return;
+@@ -185,7 +188,7 @@ void ingame_list_begin(const char* title, const char* const* items, const char*
+     g_lst.on = 1; g_lst.n = n; g_lst.sel = sel >= 0 && sel < n ? sel : 0; g_lst.result = -2;
+     snprintf(g_lst.title, sizeof g_lst.title, "%s", title ? title : "");
+     snprintf(g_lst.foot, sizeof g_lst.foot, "%s", foot ? foot : "A / Enter: choose     B / Esc: back");
+-    g_dirty = 1;
++    g_dirty = 1; menu_speech_new_page();
+ }
+ int ingame_list_result(void) { return g_lst.on ? -2 : g_lst.result; }   /* -2 open, -1 back, else the row */
+ static void lst_move(int d) { if (g_lst.n) { g_lst.sel = (g_lst.sel + d + g_lst.n * 8) % g_lst.n; g_dirty = 1; } }
+@@ -209,7 +212,7 @@ void ingame_text_begin(const char* title, const char* prompt, const char* initia
+     snprintf(g_txt.prompt, sizeof g_txt.prompt, "%s", prompt ? prompt : "");
+     snprintf(g_txt.buf, sizeof g_txt.buf, "%s", initial ? initial : "");
+     g_txt.kx = 0; g_txt.ky = 1;
+-    g_dirty = 1;
++    g_dirty = 1; menu_speech_new_page();
+ }
+ int ingame_text_result(char* out, size_t n) {                   /* -2 still typing, 0 cancelled, 1 done */
+     if (g_txt.on) return -2;
+@@ -472,7 +475,112 @@ static int text_lines(int x, int y, int max_w, float px, uint32_t c, const char*
+ 
+ /* The menu's layer for a window of w x h pixels: RGBA, rows top-down; NULL
+  * when nothing changed since the last call (*w and *h stay as given). */
++/* ---------------------------------------------------------------- speech (Access mod)
++ * The menu is drawn as pictures and the game is paused while it is open, so the
++ * Access mod's script cannot read it: what has the focus is said here, through
++ * the mod's speech (Prism). Each time the focus changes, the new focus is said
++ * (interrupting the last one); a new page (the menu, a submenu, a message, a
++ * list, typing) is said with its title first. */
++static struct {
++    int page;                       /* 0 nothing, 1 menu, 2 message, 3 list, 4 typing; -1 a new one began */
++    int depth, sel, lst_sel, kx, ky, shift, dsel, dfocus, dcheck, checked;
++    char value[64], buf[1200];
++} g_say;
++
++static void say_now(const char* s) { if (s && *s) speech_say(s, 1); }
++
++/* a single character typed or on a key, said so a screen reader does not skip it */
++static const char* char_name(char c, char* out, size_t n) {
++    static const char* const names[][2] = {
++        { " ", "space" }, { ".", "full stop" }, { ",", "comma" }, { "'", "apostrophe" }, { "-", "dash" },
++        { "_", "underscore" }, { ":", "colon" }, { ";", "semicolon" }, { "/", "slash" }, { "!", "exclamation mark" },
++        { "@", "at" }, { "#", "number sign" }, { "$", "dollar" }, { "%", "percent" }, { "&", "and" },
++        { "*", "star" }, { "(", "open bracket" }, { ")", "close bracket" }, { "?", "question mark" },
++    };
++    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) if (c == names[i][0][0]) { snprintf(out, n, "%s", names[i][1]); return out; }
++    if (c >= 'A' && c <= 'Z') snprintf(out, n, "capital %c", c); else snprintf(out, n, "%c", c);
++    return out;
++}
++
++/* the row with the focus: its words as drawn, its value or check mark, and where it is */
++static void menu_row_text(char* out, size_t n) {
++    const Row* r = &g_rows[g_sel[g_depth]];
++    int pos = 0, total = 0;
++    for (int i = 0; i < g_nrows; i++) if (g_rows[i].kind != MK_SEP) { total++; if (i == g_sel[g_depth]) pos = total; }
++    char extra[200] = "";
++    if (r->value && g_val_get) { char v[64]; g_val_get(r->id, v, sizeof v); snprintf(extra, sizeof extra, ", %s", v); }
++    else if (r->kind == MK_SUB) snprintf(extra, sizeof extra, ", submenu");
++    else if (r->kind == MK_ITEM && menu_is_checked(r->id)) snprintf(extra, sizeof extra, ", checked");
++    snprintf(out, n, "%s%s%s, %d of %d", r->label, extra, selectable(r) ? "" : ", unavailable", pos, total);
++}
++
++static void menu_title_text(char* out, size_t n) {
++    snprintf(out, n, "Menu");
++    if (g_depth) menu_plain_label(g_menu_items[g_path[g_depth - 1]].label, out, n);
++}
++
++static void menu_speech_update(void) {
++    char s[4800], t[1400];
++    int page = !g_dlg.on && g_txt.on ? 4 : !g_dlg.on && g_lst.on ? 3 : g_dlg.on ? 2 : g_open ? 1 : 0;
++    int fresh = page != g_say.page;
++    if (page == 4) {                                                   /* typing */
++        char k[32];
++        if (g_txt.ky < 4) char_name(OSK[g_txt.shift][g_txt.ky][g_txt.kx], k, sizeof k);
++        else snprintf(k, sizeof k, "%s", g_txt.kx == 0 ? (g_txt.shift ? "small letters" : "capitals") : g_txt.kx == 1 ? "space key" : g_txt.kx == 2 ? "delete" : "done");
++        if (fresh) {
++            snprintf(s, sizeof s, "%s. %s. %s. Typing. On the screen's keyboard: %s", g_txt.title, g_txt.prompt, g_txt.buf[0] ? g_txt.buf : "empty", k);
++            say_now(s);
++        } else if (strcmp(g_txt.buf, g_say.buf)) {
++            size_t a = strlen(g_say.buf), b = strlen(g_txt.buf);
++            if (b > a && !strncmp(g_txt.buf, g_say.buf, a)) {
++                if (b - a == 1) say_now(char_name(g_txt.buf[a], t, sizeof t)); else say_now(g_txt.buf + a);
++            } else if (b < a) { snprintf(s, sizeof s, "deleted. %s", b ? g_txt.buf : "empty"); say_now(s); }
++            else say_now(g_txt.buf);
++        } else if (g_txt.shift != g_say.shift) say_now(g_txt.shift ? "capitals on" : "capitals off");
++        else if (g_txt.kx != g_say.kx || g_txt.ky != g_say.ky) say_now(k);
++        g_say.kx = g_txt.kx; g_say.ky = g_txt.ky; g_say.shift = g_txt.shift;
++        snprintf(g_say.buf, sizeof g_say.buf, "%s", g_txt.buf);
++    } else if (page == 3) {                                            /* a list */
++        if (fresh || g_lst.sel != g_say.lst_sel) {
++            if (!g_lst.n) snprintf(t, sizeof t, "nothing here");
++            else snprintf(t, sizeof t, "%s%s%s, %d of %d", g_lst.text[g_lst.sel], g_lst.right[g_lst.sel][0] ? ", " : "",
++                          g_lst.right[g_lst.sel], g_lst.sel + 1, g_lst.n);
++            if (fresh) { snprintf(s, sizeof s, "%s. %s", g_lst.title, t); say_now(s); } else say_now(t);
++        }
++        g_say.lst_sel = g_lst.sel;
++    } else if (page == 2) {                                            /* a message or question */
++        if (g_dlg.focus_check) snprintf(t, sizeof t, "%s, check box, %s", g_dlg.check, g_dlg.checked ? "checked" : "not checked");
++        else snprintf(t, sizeof t, "%s, button", g_dlg.btn[g_dlg.sel]);
++        if (g_dlg.n > 1 && !g_dlg.focus_check) { size_t l = strlen(t); snprintf(t + l, sizeof t - l, ", %d of %d", g_dlg.sel + 1, g_dlg.n); }
++        if (fresh) {
++            snprintf(s, sizeof s, "%s%s%s. %s", g_dlg.title, g_dlg.title[0] ? ". " : "", g_dlg.text, t);
++            say_now(s);
++        } else if (g_dlg.focus_check != g_say.dfocus || g_dlg.sel != g_say.dsel) say_now(t);
++        else if (g_dlg.focus_check && g_dlg.checked != g_say.dcheck) say_now(g_dlg.checked ? "checked" : "not checked");
++        g_say.dsel = g_dlg.sel; g_say.dfocus = g_dlg.focus_check; g_say.dcheck = g_dlg.checked;
++    } else if (page == 1 && g_nrows) {                                 /* the menu */
++        const Row* r = &g_rows[g_sel[g_depth]];
++        char v[64] = "";
++        if (r->value && g_val_get) g_val_get(r->id, v, sizeof v);
++        int checked = r->kind == MK_ITEM && menu_is_checked(r->id);
++        if (fresh || g_depth != g_say.depth) {
++            char title[160]; menu_title_text(title, sizeof title); menu_row_text(t, sizeof t);
++            snprintf(s, sizeof s, "%s. %s", title, t); say_now(s);
++        } else if (g_sel[g_depth] != g_say.sel) { menu_row_text(t, sizeof t); say_now(t); }
++        else if (r->value && strcmp(v, g_say.value)) say_now(v);   /* left / right changed it */
++        else if (checked != g_say.checked) say_now(checked ? "checked" : "not checked");   /* A turned it on or off */
++        g_say.depth = g_depth; g_say.sel = g_sel[g_depth]; g_say.checked = checked;
++        snprintf(g_say.value, sizeof g_say.value, "%s", v);
++    }
++    g_say.page = page;
++}
++static void menu_speech_new_page(void) { g_say.page = -1; }
++static void menu_speech_closed(void) {
++    if (!ingame_menu_is_open() && g_say.page) { g_say.page = 0; say_now("Back to the game"); }
++}
++
+ const uint8_t* ingame_menu_draw(int w, int h, int force) {
++    menu_speech_update();
+     if (!ingame_menu_is_open() || w <= 0 || h <= 0) return NULL;
+     if (!force && !g_dirty && w == g_w && h == g_h && g_gen_drawn == menu_generation()) return NULL;
+     if (w != g_w || h != g_h || !g_rgb) {
