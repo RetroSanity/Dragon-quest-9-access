@@ -8,13 +8,14 @@ It reads the game out loud through your screen reader (NVDA, JAWS, Narrator, ZDS
 
 ## What it does
 
-- Reads the game: menus with their descriptions, dialogue page by page with who is speaking, yes or no questions, shops (prices, who can equip what and how it changes their attributes), battles (whose turn it is, each monster as you pick a target, HP, spells with their MP cost), the status screens, Battle Records and the character creation keyboards.
+- Reads the game: menus with their descriptions, dialogue page by page with who is speaking, yes or no questions, shops and Sellma's DQVC (prices, stock, who can equip what and how it changes their attributes), battles (whose turn it is, each monster as you pick a target, HP, spells with their MP cost), the status screens, Battle Records and the character creation keyboards.
 - Nearby lists: people, monsters, items, sparkly spots, doors, exits, objects and your own marks, each with its direction ("4 steps down, 3 steps right"). Things you cannot get to from where you are say so, and things on a higher or lower level say "higher up" or "lower down".
 - Doors named after where they lead, for the whole game ("Inn door", "Princess's room door", "door to a room with stairs up and a bookshelf"), and whether they are locked right now and what opens them ("opens with the Magic Key").
 - Objects named from the game's own words for them: signs and what they say, statues, gravestones, books and more.
 - Auto walk: pick anything in the list and the mod walks you there, round walls and furniture, up stairs and across big fields, with a beep that gets faster as you get close. If a monster stops you, the walk carries on after the battle.
 - 3D beacon: if you'd rather walk yourself, follow a knock placed all round you on headphones (OpenAL Soft with HRTF). It leads you round obstacles, turn by turn. There are spoken step-by-step routes too.
 - Story guide: where to go next in the story, worked out from the game's own story progress, and what opens each locked door where you are. Dungeons with a walkthrough (Brigadoom, Tywll Cave, the Tower of Trades and the Heights of Loneliness so far) are read step by step for the part you are in.
+- The game window's menu bar from the keyboard: Alt, or Alt and a menu's letter, opens it so your screen reader reads it (not in fullscreen).
 - Mod settings (at the end of the game's Misc. menu): the volume of each of the mod's sounds, a beacon test and the alerts.
 - Updates itself: it checks for a new version each time the game starts.
 

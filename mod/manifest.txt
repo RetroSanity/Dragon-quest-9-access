@@ -1,17 +1,17 @@
-version 0.54
-patch 3
+version 0.55
+patch 4
 file 442 Install DQ9 Access.bat
 file 26434 LICENSE-NVDA.txt
-file 53319 README.txt
+file 56334 README.txt
 file 46067 dq9-access-doors.lua
 file 2526928 dq9-access-maps.bin
 file 14018 dq9-access-objects.lua
-file 573372 dq9-access.lua
+file 589462 dq9-access.lua
 file 873984 openal_soft.dll
 file 1363968 prism.dll
 file 11096 installer/install.ps1
 file 16888 installer/game-patch/access-game.patch
-file 24801 installer/game-patch/files/runtime/access.c
+file 26736 installer/game-patch/files/runtime/access.c
 file 1394 installer/game-patch/files/runtime/access.h
 file 8085 installer/game-patch/files/runtime/access_sound.h
 file 11041 installer/game-patch/files/runtime/speech.c

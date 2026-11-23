@@ -326,7 +326,7 @@ static void load_script(void) {
  * loaded as usual (its file changed). An update that also changes the game
  * (a newer "patch") is said: the installer has to build the game again.
  * No update: a file called no-auto-update.txt in the mod's folder. */
-#define ACCESS_PATCH 3
+#define ACCESS_PATCH 4
 #define UPDATE_HOST L"raw.githubusercontent.com"
 #define UPDATE_REPO "RetroSanity/Dragon-quest-9-access/main"
 static volatile int g_upd_done;                 /* 1: the thread has finished (g_upd_msg: what to say) */
@@ -476,6 +476,36 @@ static void update_poll(void) {
     fprintf(stderr, "access: %s\n", g_upd_msg);
 }
 
+/* Alt pressed and let go on its own opens the window's menu bar. SDL takes the window's Alt key
+ * messages before Windows can do that, so a hook on SDL's message loop (SDL_SetWindowsMessageHook,
+ * found in SDL2.dll at run time: the game's library copies have no SDL) watches for it and asks
+ * for the menu itself, as Windows would (WM_SYSCOMMAND, SC_KEYMENU). */
+typedef void (__cdecl *msg_hook_fn)(void* userdata, void* hwnd, unsigned int msg, unsigned long long wp, long long lp);
+typedef void (__cdecl *set_hook_fn)(msg_hook_fn hook, void* userdata);
+static int g_alt_alone;
+static void __cdecl menu_alt_hook(void* userdata, void* hwnd, unsigned int msg, unsigned long long wp, long long lp) {
+    (void)userdata;
+    switch (msg) {
+    case WM_KEYDOWN: case WM_SYSKEYDOWN:
+        if (wp == VK_MENU) { if (!(lp & (1LL << 30))) g_alt_alone = 1; }   /* (not the key repeating) */
+        else g_alt_alone = 0;
+        break;
+    case WM_KEYUP: case WM_SYSKEYUP:
+        if (wp == VK_MENU && g_alt_alone && hwnd && GetMenu((HWND)hwnd))
+            PostMessageW((HWND)hwnd, WM_SYSCOMMAND, SC_KEYMENU, 0);
+        if (wp == VK_MENU) g_alt_alone = 0;
+        break;
+    case WM_LBUTTONDOWN: case WM_RBUTTONDOWN: case WM_MBUTTONDOWN:
+        g_alt_alone = 0;
+        break;
+    }
+}
+static void menu_alt_init(void) {
+    HMODULE sdl = GetModuleHandleA("SDL2.dll");
+    set_hook_fn set = sdl ? (set_hook_fn)(void*)GetProcAddress(sdl, "SDL_SetWindowsMessageHook") : NULL;
+    if (set) set(menu_alt_hook, NULL);
+}
+
 void access_init(void) {
     const char* path = script_path();
     if (!path) return;
@@ -485,6 +515,12 @@ void access_init(void) {
     snprintf(g_path, sizeof g_path, "%s", path);
     speech_init();
     g_access_on = 1;
+    /* the window's menu bar from the keyboard, as in any Windows program, so a screen reader
+     * reads it: Alt and a letter opens that menu (SDL keeps those to itself unless asked, and
+     * reads the hint from the environment when it starts), and Alt on its own the bar */
+    _putenv("SDL_WINDOWS_ENABLE_MENU_MNEMONICS=1");
+    SetEnvironmentVariableA("SDL_WINDOWS_ENABLE_MENU_MNEMONICS", "1");
+    menu_alt_init();
     load_script();
     update_start();
 }

@@ -48,7 +48,7 @@
 -- Anything read from memory is checked before it is spoken; a check that fails stays silent.
 
 ------------------------------------------------------------------------------ settings ------
-MOD_VERSION = "0.54"
+MOD_VERSION = "0.55"
 MENU_DEBUG = false   -- true: log the menu buffer and look for the yes/no box in snapshots
 WALK_DEBUG = false   -- true: log auto walk's route and position (in the speech log)
 -- (what the mod last pressed for you, for that log)
@@ -3038,7 +3038,10 @@ local function track_map()
 				if mm and #mm[1] == 3 and mm[2] and map_name() and mm[2] ~= map_name() then
 					label = mm[2] .. ", outside"
 				else
-					label = label .. ", " .. (d.label ~= "door" and d.label:gsub(",.*$", ""):gsub(" door$", "") or "inside")
+					local dn = d.label ~= "door" and d.label:gsub(",.*$", ""):gsub(" door$", "") or "inside"
+					-- (a door out to the place itself, "Bloomingdale door" out of the workshop:
+					-- "Bloomingdale", not "Bloomingdale, Bloomingdale")
+					if dn ~= label then label = label .. ", " .. dn end
 				end
 			elseif d and d.kind == 0 and map_name() and (d.label == "exit" or d.label == "exit to the open field") then
 				learn_name(d.id, map_name())       -- the exit had no name: now we know where it goes
@@ -5394,7 +5397,7 @@ function things_in_way(tx, tz, px, pz)
 			-- the route does not go back in)
 			local r = (math.abs(d.x - px) < 1.3 and math.abs(d.z - pz) < 1.3) and 0.4 or 1.2
 			out[#out + 1] = { x0 = d.x - r, x1 = d.x + r, z0 = d.z - r, z1 = d.z + r,
-				y0 = d.fy and (d.fy - 0.6), y1 = d.fy and (d.fy + 2.0), pad = 0.1, tdoor = true }
+				y0 = d.fy and (d.fy - 0.6), y1 = d.fy and (d.fy + 2.0), pad = 0.1, tdoor = true, door_id = d.id, door_label = d.label }
 		end
 	end
 	return out
@@ -5815,6 +5818,19 @@ end
 function counter_approach(n, x, z, y, o)
 	if not n then return nil end
 	local zb = counter_zone(n, o, y)
+	-- (a talk zone behind someone, the way they do not face, is the wrong side: Pavo, at the
+	-- end of the Quester's Rest counter, only says "......" from behind it; talk to him from
+	-- the front, the way he faces)
+	if zb then
+		local ffx, ffz = person_facing(o, x, z)
+		if ffx and ((zb.x - x) * ffx + (zb.z - z) * ffz) < -0.3 then
+			zb = nil
+			for t = 0.9, 1.5, 0.1 do
+				local fx, fz = x + ffx * t, z + ffz * t
+				if clear_at3(n, fx, fz, y, 0.3) then return { x = fx, z = fz } end
+			end
+		end
+	end
 	if zb then return zb end
 	local function level(px, pz, h)
 		for _, f in ipairs(floor_heights(n, px, pz)) do if math.abs(f - h) < 0.25 then return true end end
@@ -5871,6 +5887,54 @@ function person_facing(o, x, z)
 		end
 	end
 	return nil
+end
+-- Someone with other people right round them, so you cannot get up to them (Marion at her
+-- table between her guests): the nearest free spot straight up, down, left or right of them, a
+-- step or so away, that you can walk to; nil when there is room right next to them.
+function hemmed_spot(n, x, z, y, o)
+	local okc, chars = pcall(characters)
+	if not okc or not chars then return nil end
+	local function taken(ax, az)
+		for _, c in ipairs(chars) do
+			if c.obj ~= o and (c.x - ax) ^ 2 + (c.z - az) ^ 2 < 0.36 then return true end
+		end
+		return false
+	end
+	local function free(ax, az, room) return clear_at3(n, ax, az, y, room or 0.3) and not taken(ax, az) end
+	-- room right beside them: walk up as usual
+	for k = 0, 7 do
+		local a = k * math.pi / 4
+		if free(x + math.cos(a), z + math.sin(a)) then return nil end
+	end
+	local px, py, pz = player_pos()
+	local ok, R = pcall(reach_region, n, px, py, pz)
+	if not ok or not R or not R.cells then return nil end
+	-- (a spot you can really stand on: inside a ring of table counts as close by, but is not)
+	local C = REACH_CELL
+	local function walkable(ax, az)
+		return R.cells[reach_key(math.floor(ax / C + 0.5), math.floor(az / C + 0.5))] ~= nil
+	end
+	-- the way they face first, across whatever is in front of them: Marion faces across her
+	-- table, and is talked to from its far side (from beside her you face a guest)
+	local ffx, ffz = person_facing(o, x, z)
+	if ffx then
+		for t = 1.0, 3.0, 0.1 do
+			local ax, az = x + ffx * t, z + ffz * t
+			if free(ax, az, 0.22) and walkable(ax, az) then return { x = ax, z = az } end
+		end
+	end
+	local best, bd = nil, 1e9
+	for _, dv in ipairs({ { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } }) do
+		for t = 1.0, 2.0, 0.25 do
+			local ax, az = x + dv[1] * t, z + dv[2] * t
+			if free(ax, az) and walkable(ax, az) then
+				local dd = (ax - px) ^ 2 + (az - pz) ^ 2 + t * 4
+				if dd < bd then best, bd = { x = ax, z = az }, dd end
+				break
+			end
+		end
+	end
+	return best
 end
 -- Someone you cannot walk up to, behind furniture the game lets you talk across (a counter with
 -- no raised top in the map, as at the Angel Falls inn): the nearest spot you can walk to, straight
@@ -5974,7 +6038,7 @@ local function start_walk()
 	walk = { x = it.x, z = it.z, tx0 = it.x, tz0 = it.z, gy = it.y0 and (it.y0 + 1) or nil, label = it.label, obj = it.obj, posoff = it.posoff or 0x24, start = frame, code = here_code(), sx = px, sz = pz,
 	         best = 1e9, progress = frame, side = 1, side_until = 0, tries = 0, push = 0, exit = (it.kind == 0) or nil, place = place_key(),
 	         person = (it.obj and not it.thing and not it.item and not it.monster) or nil,
-	         monster = it.monster or nil, boss = it.boss or nil,
+	         monster = it.monster or nil, boss = it.boss or nil, origin_map = u16(MAPID),
 	         doorlike = (it.kind == 1 and not it.nx) or nil, item = it }
 	walk_resume = nil
 	if it.nx then
@@ -6074,6 +6138,15 @@ local function start_walk()
 		if ap then
 			walk.x, walk.z, walk.obj, walk.face = ap.x, ap.z, nil, { it.x, it.z }
 			say("Walking to " .. it.label .. ", across the counter. Press any button to stop.", true)
+			return
+		end
+		-- hemmed in by other people (Marion at her table, between her two guests): from a free
+		-- spot round them, across a chair if need be
+		local sp = n and hemmed_spot(n, it.x, it.z, it.fy or py or 0, it.obj)
+		if sp then
+			walk.x, walk.z, walk.obj, walk.face, walk.square = sp.x, sp.z, nil, { it.x, it.z }, true
+			walk.face_msg = "In front of " .. it.label .. ". Press A to talk."
+			say("Walking to " .. it.label .. ". Press any button to stop.", true)
 			return
 		end
 	end
@@ -6375,12 +6448,71 @@ function walk_resume_step()
 	sel_item = r.it
 	start_walk()
 end
+-- Through a building on the way (Bloomingdale's workshop, from its yard): once in, walk out by
+-- its other door back to where you were going from; once out, on to what you picked.
+THROUGH_LEG = nil
+function through_step()
+	local t = THROUGH_LEG
+	if not t or walk then return end
+	if frame - t.frame > 60 * 90 or in_battle() then THROUGH_LEG = nil return end
+	if fading() or u8(0x02109DA4) ~= 1 or frame - USER_INPUT_FRAME < 20 or frame - LAST_SAY_FRAME < 40 then return end
+	local id = u16(MAPID)
+	local ok, l = pcall(build_nearby)
+	if not ok or not l then return end
+	local px, _, pz = player_pos()
+	if t.stage == "inside" and id == t.inside then
+		-- the door out to where you came from that is furthest from you: its other door
+		local best, bd = nil, -1
+		for _, d in ipairs(l) do
+			if (d.kind == 0 or d.kind == 1) and d.id == t.origin then
+				local dd = (d.x - px) ^ 2 + (d.z - pz) ^ 2
+				if dd > bd then best, bd = d, dd end
+			end
+		end
+		if not best or bd < 4 then THROUGH_LEG = nil return end
+		t.stage, t.frame = "leaving", frame
+		sel_item = best
+		start_walk()
+		if walk then walk.through_leg = true end
+	elseif t.stage == "leaving" and id == t.origin then
+		THROUGH_LEG = nil
+		local best, bd = nil, 1e9
+		for _, d in ipairs(l) do
+			if d.label == t.it.label or d.base_label == t.it.base_label then
+				local dd = (d.x - t.it.x) ^ 2 + (d.z - t.it.z) ^ 2
+				if dd < bd then best, bd = d, dd end
+			end
+		end
+		if best then sel_item = best start_walk() end
+	elseif id ~= t.inside and id ~= t.origin then
+		THROUGH_LEG = nil
+	end
+end
 local function walk_step(host_pressed)
 	if not walk then return end
 	-- (not after walking into a monster: that battle was the point)
 	local function keep_resume() if walk and walk.item and not walk.monster and (frame - walk.start) > 60 then walk_resume = { it = walk.item, code = walk.code, frame = frame } end end
 	if host_pressed then keep_resume() stop_walk("Stopped.") return end
-	if here_code() ~= walk.code or (walk.place and place_key() ~= walk.place) then stop_walk() return end   -- went through a door
+	if here_code() ~= walk.code or (walk.place and place_key() ~= walk.place) then   -- went through a door
+		-- (through a building on the way: on out of its other door, then on to it)
+		if walk.through and u16(MAPID) == walk.through.id then
+			THROUGH_LEG = { stage = "inside", origin = walk.origin_map, it = walk.item, frame = frame, inside = u16(MAPID) }
+		end
+		stop_walk() return
+	end
+	-- (at the door of the building the way goes through: walk on into it, the door takes a
+	-- moment to swing open, which is not being stuck)
+	if walk.through and not in_battle() then
+		local tpx, _, tpz = player_pos()
+		local tx, tz = walk.through.x - tpx, walk.through.z - tpz
+		if tx * tx + tz * tz < 2.6 then
+			walk.through.pushing = walk.through.pushing or frame
+			if frame - walk.through.pushing < 240 then
+				pcall(function() joypad.set(DIRS[dir_toward(tx, tz) + 1]) end)
+				return
+			end
+		end
+	end
 	if in_battle() or frame - last_dialogue_frame < 10 then
 		if in_battle() then keep_resume() if walk_resume then walk_resume.battle = true end end
 		stop_walk() return
@@ -6569,6 +6701,7 @@ local function walk_step(host_pressed)
 						local p2, rem2 = plan_path(nv, sx, sy, sz, gx, gz, gy, 0.2, true, 20000, avoid)
 						if rem2 < rem - 0.4 then p, rem = p2, rem2 end
 					end
+					p, rem = plan_past_doors(nv, sx, sy, sz, gx, gz, gy, avoid, p, rem)
 					if rem > 1.5 then
 						local p2, rem2 = find_path(nv, sx, sz, gx, gz, 0.3, false, 20000, avoid)
 						if rem2 < rem - 1 then p, rem = p2, rem2 end
@@ -6587,6 +6720,12 @@ local function walk_step(host_pressed)
 			elseif coroutine.status(walk.co) == "dead" then
 				walk.co, walk.path, walk.pi, walk.wbest, walk.wprog, walk.rem = nil, p or {}, 1, 1e9, frame, rem or 0
 				walk.stale = nil
+				if LAST_THROUGH and LAST_THROUGH.id and walk.item and not walk.through then
+					walk.through = LAST_THROUGH
+					say("The way is through the " .. (LAST_THROUGH.label or "building"):gsub(" door$", ""):lower()
+						.. ": in at its door, out by its other door, and on.", false)
+				end
+				LAST_THROUGH = nil
 				-- (the route was worked out over a few frames while you kept walking: start from
 				-- the part of it you have got to, not from where you were, which is behind you)
 				do
@@ -7200,8 +7339,17 @@ function qty_held(L, W, count, sel, skip)
 		local open, how = false, 0
 		if not mine and #w.boxes > 1 then open, how = window_open(L, w) end
 		-- (+0x21 bit 0x20: a window kept out of sight, such as the empty "Cannot Equip" one)
+		-- (not the equipment comparison: the item's line already said that)
+		if open then
+			for _, i in ipairs(w.boxes) do
+				local sid = u16(W + 0x30 * i + 0x0E)
+				local t = sid ~= 0xFFFF and layout_string(L, sid) or nil
+				if t == "Cannot Equip" or t == "Equipped" then open = false break end
+			end
+		end
 		if open and how & 0x20 == 0 then
 			local names, nums = {}, {}
+			local held_win = false
 			for _, i in ipairs(w.boxes) do
 				if i < count and box_shown(W, i) then
 					local a = W + 0x30 * i
@@ -7209,7 +7357,10 @@ function qty_held(L, W, count, sel, skip)
 					if n then nums[#nums + 1] = { u16(a + 6), u16(a + 8), n }
 					elseif (u16(a + 0x12) >> 8) == 0xFA or (u16(a + 0x12) >> 8) == 0xAA then
 						local t = layout_box(L, W, i)
-						if t and t ~= "" then names[#names + 1] = { u16(a + 6), u16(a + 8), t } end
+						-- ("Number Held" is the window's title; "None Held" is a person's count)
+						if t == "Number Held" then held_win = true
+						elseif t == "None Held" then nums[#nums + 1] = { u16(a + 6), u16(a + 8), "none" }
+						elseif t and t ~= "" then names[#names + 1] = { u16(a + 6), u16(a + 8), t } end
 					end
 				end
 			end
@@ -7219,7 +7370,7 @@ function qty_held(L, W, count, sel, skip)
 				for _, nu in ipairs(nums) do
 					if math.abs(nu[2] - nm[2]) <= 2 and nu[1] > nm[1] + 20 then got = nu[3] break end
 				end
-				out[#out + 1] = got and (nm[3] .. " " .. got) or nm[3]
+				out[#out + 1] = got and (nm[3] .. " " .. got) or (held_win and (nm[3] .. " none")) or nm[3]
 			end
 		end
 	end
@@ -7290,6 +7441,10 @@ function compare_text(L, W, count, w)
 			local fl, sid = u16(a + 0x12), u16(a + 0x0E)
 			local it = { x = u16(a + 6), y = u16(a + 8) }
 			if (fl & 0xFF) == 3 and ((fl >> 8) & 0x0F) == 8 then it.num = u32(a)
+			-- (a percentage, Evasion Chance on kung fu shoes, is a decimal: 0.5 to 3)
+			elseif (fl & 0xFF) == 5 and ((fl >> 8) & 0x0F) == 8 then
+				it.num = math.floor(string.unpack("<f", string.pack("<I4", u32(a))) * 10 + 0.5) / 10
+				it.pct = true
 			elseif ((fl >> 8) & 0x0F) == 0x0A then
 				local named = sid ~= 0xFFFF and layout_string(L, sid) or nil
 				if named == "Cannot Equip" then it.cannot, has_cannot = true, true
@@ -7313,6 +7468,7 @@ function compare_text(L, W, count, w)
 	for _, it in ipairs(items) do
 		if not row or math.abs(it.y - row.y) > 2 then row = { y = it.y, nums = {} } rows[#rows + 1] = row end
 		if it.num then row.nums[#row.nums + 1] = it.num end
+		if it.pct then row.pct = true end
 		if it.cannot then row.cannot = true end
 		if it.equipped then row.equipped = true end
 		if it.label then row.label = it.label end
@@ -7328,8 +7484,9 @@ function compare_text(L, W, count, w)
 			elseif r.equipped then t = "already equipped"
 			elseif #r.nums >= 2 then
 				local d = r.nums[2] - r.nums[1]
-				t = (stat and (stat .. " ") or "") .. (d > 0 and ("up " .. d) or d < 0 and ("down " .. -d) or "no change")
-					.. ", " .. r.nums[1] .. " to " .. r.nums[2]
+				local function f(v) return (string.format("%.1f", v):gsub("%.0$", "")) .. (r.pct and "%" or "") end
+				t = (stat and (stat .. " ") or "") .. (d > 0 and ("up " .. f(d)) or d < 0 and ("down " .. f(-d)) or "no change")
+					.. ", " .. f(r.nums[1]) .. " to " .. f(r.nums[2])
 			end
 			if t then out[#out + 1] = (r.name and (r.name .. ", ") or "") .. t end
 		end
@@ -7785,6 +7942,74 @@ end
 -- +0x38. The screen's string table is pointed to from 0x02108DC0.
 UI_LIST_FN, UI_TEXT_FN, UI_STRINGS = 0x021FE80C, 0x021FE708, 0x02108DC0
 UI_NUM_FN = 0x021FF078      -- a number box: its value at +0x2C
+UI_GROUP_FN = 0x021FE604    -- a group of boxes: hidden while +0x0C has 8 set
+-- DQVC (Sellma's shop): the six items' names are boxes 300-305, their prices 324-329 and how
+-- many are left 318-323; box group 23 compares equipment for the party (names 450-453, now
+-- 454-457, with it 458-461), group 28 says how many each holds (names 479-482 and the bag 483,
+-- counts 484-488); 201 is your gold
+function ui_shown(e) return e and (u32(e + 0x0C) & 8) == 0 end
+function ui_num(id) local e = ui.nums and ui.nums[id] return (e and ui_shown(e)) and u32(e + 0x2C) or nil end
+function dqvc_extra(line)
+	if not (ui.texts[300] and ui.nums and ui.nums[324] and ui.nums[318]) then return nil end
+	local nm = line:match("^([^,]+), (%d+) of %d+$")
+	if not nm then return nil end
+	local k = nil
+	for i = 0, 5 do
+		local t = ui_text(ui.texts[300 + i])
+		if t and t == nm then k = i break end
+	end
+	if not k then return nil end
+	local out = {}
+	local price, left = ui_num(324 + k), ui_num(318 + k)
+	if price then out[#out + 1] = price .. " gold" end
+	if left then out[#out + 1] = left .. " left" end
+	DQVC_K = k
+	return #out > 0 and table.concat(out, ", ") or nil
+end
+-- the attribute equipment changes, from its number: weapons (20000-20999) Attack; shields
+-- (21000-21999) and armour (12000-17999) Defence; accessories (18000-) vary
+function equip_stat(name)
+	if not name then return nil end
+	local lname = name:lower()
+	for id, n in pairs(ITEM_NAMES) do
+		if n == lname then
+			if id >= 20000 and id < 21000 then return "Attack" end
+			if (id >= 21000 and id < 22000) or (id >= 12000 and id < 18000) then return "Defence" end
+			return nil
+		end
+	end
+	return nil
+end
+-- after the item: the comparison for equipment, or how many each person holds
+function dqvc_detail()
+	local parts = {}
+	if ui_shown(ui.groups[23]) then
+		local st = DQVC_K and equip_stat(ui_text(ui.texts[300 + DQVC_K]))
+		if st then parts[#parts + 1] = st end
+		for m = 0, 3 do
+			local who = ui_text(ui.texts[450 + m])
+			local a, b = ui_num(454 + m), ui_num(458 + m)
+			if who and a and b then
+				local d = b - a
+				parts[#parts + 1] = who .. ", " .. (d > 0 and ("up " .. d) or d < 0 and ("down " .. -d) or "no change") .. ", " .. a .. " to " .. b
+			elseif who then
+				parts[#parts + 1] = who .. ", cannot equip"
+			end
+		end
+	end
+	if ui_shown(ui.groups[28]) then
+		local held = {}
+		for m = 0, 3 do
+			local who = ui_text(ui.texts[479 + m])
+			local c = ui_num(484 + m)
+			if who then held[#held + 1] = who .. " " .. (c and c > 0 and c or "none") end
+		end
+		local bag = ui_num(488)
+		held[#held + 1] = "bag " .. ((bag and bag > 0) and bag or "none")
+		if #held > 0 then parts[#parts + 1] = "Held: " .. table.concat(held, ", ") end
+	end
+	return #parts > 0 and (table.concat(parts, ". ") .. ".") or nil
+end
 ui = { lists = {}, texts = {}, table = nil, focus = nil, said = {}, checked = -1000 }
 ui_cache, ui_cache_table = {}, nil
 function ui_string(sid)
@@ -7916,6 +8141,11 @@ function read_ui_screen()
 	end
 	if frame - ui.checked < 4 then return end
 	ui.checked = frame
+	if DQVC_DETAIL_AT and frame >= DQVC_DETAIL_AT then
+		DQVC_DETAIL_AT = nil
+		local okd, dd = pcall(dqvc_detail)
+		if okd and dd then queue(dd) end
+	end
 	if UI_SAID_RESET and UI_SAID_RESET ~= ui.reset_seen then ui.reset_seen, ui.said = UI_SAID_RESET, {} end
 	local tbl = u32(UI_STRINGS)
 	local hf = ui.head and u32(ui.head) or 0
@@ -7939,14 +8169,15 @@ function read_ui_screen()
 		return
 	end
 	-- boxes and lists come and go as the screen changes: walk the chain every time
-	ui.lists, ui.texts = {}, {}
+	ui.lists, ui.texts, ui.nums, ui.groups = {}, {}, {}, {}
 	local order, nums = {}, {}
 	local e, guard = ui.head, 0
 	while inram(e, 0x40) and guard < 400 do
 		local f = u32(e)
 		if f == UI_TEXT_FN then ui.texts[u16(e + 6)] = e order[#order + 1] = e
 		elseif f == UI_LIST_FN then ui.lists[#ui.lists + 1] = e
-		elseif f == UI_NUM_FN then nums[#nums + 1] = u32(e + 0x2C) end
+		elseif f == UI_NUM_FN then nums[#nums + 1] = u32(e + 0x2C) ui.nums[u16(e + 6)] = e
+		elseif f == UI_GROUP_FN then ui.groups[u16(e + 6)] = e end
 		e, guard = u32(e + 0x18), guard + 1
 	end
 	-- nothing to read in it any more (the screen was closed and its boxes cleared): look again
@@ -8004,10 +8235,19 @@ function read_ui_screen()
 		ui.spoke_frame = frame
 		local line = ui.said[pick]
 		if ui.header then line = ui.header .. ". " .. line ui.header = nil end
+		-- DQVC: the price and how many are left, then the comparison or how many you hold
+		local okx, extra = pcall(dqvc_extra, line)
+		local detail = nil
+		if okx and extra then
+			line = line:gsub("(, %d+ of %d+)$", ", " .. extra .. "%1")
+			-- (the comparison and counts are filled in a moment after the cursor moves)
+			DQVC_DETAIL_AT = frame + 10
+		end
 		-- an item in the Wardrobe or the Item List: its description after it
-		local nm = line:match("([^%.,]+), row %d+") or line:match("([^%.,]+), %d+ of %d+$")
+		local nm = line:match("([^%.,]+), row %d+") or line:match("^([^%.,]+), %d+ of %d+$") or (okx and extra and line:match("^([^,]+),"))
 		local dsc = nm and item_desc_of((nm:gsub("^%s+", "")))
 		if dsc then UI_DESC = dsc end
+		if detail then UI_DESC = (UI_DESC and (UI_DESC .. " ") or "") .. detail end
 		if frame - last_dialogue_frame < 5 then queue(line) else say(line, true) end
 		if UI_DESC then queue(UI_DESC) UI_DESC = nil end
 	end
@@ -8152,33 +8392,86 @@ end
 -- messages the game has loaded, and the cursor is copied to the player's record (+0x250), like
 -- the yes or no answer.
 choice = { sig = nil, items = nil, last = nil }
-function find_choice_lists()
-	local lists = {}
-	local from, len = 0x0211C000, 0x24000
-	local blob = mem_str(from, len)
-	local at = 1
-	while true do
-		local i = blob:find("<N=0>", at, true)
-		if not i then break end
-		at = i + 5
-		do
-			do
-				local a = from + i - 1
-				local sraw = cstring(a, 400)
-				if not sraw:find("%s", 1, true) then
-					local items = {}
-					for txt in sraw:gmatch("<N=%d+>(.-)</N>") do items[#items + 1] = clean(txt) end
-					if #items >= 2 then lists[#lists + 1] = items end
+function find_choice_lists(speaker)
+	local lists, seen = {}, {}
+	-- (the game loads the place's messages where the heap has room: low down as a rule, but
+	-- high up after DQVC has been open, Erinn's at 0x0238C6FF)
+	for ri, rg in ipairs({ { 0x0211C000, 0x24000 }, { 0x02300000, 0xC0000 } }) do
+		local from, len = rg[1], rg[2]
+		local blob = mem_str(from, len)
+		local at = 1
+		while true do
+			local i = blob:find("<N=0>", at, true)
+			if not i then break end
+			at = i + 5
+			local a = from + i - 1
+			local sraw = cstring(a, 400)
+			if not sraw:find("%s", 1, true) then
+				local items = {}
+				for txt in sraw:gmatch("<N=%d+>(.-)</N>") do items[#items + 1] = clean(txt) end
+				local key = table.concat(items, "|")
+				if #items >= 2 and not seen[key] then
+					seen[key] = true
+					-- whose messages the list sits among (the person asking first)
+					local near = speaker and blob:sub(math.max(1, i - 3000), i + 3000):find(speaker, 1, true)
+					-- (up high, only lists among the asker's own messages: the place's other
+					-- banks stay loaded there, Erinn's list while Patty asks)
+					if ri == 1 or near then
+						lists[#lists + 1] = { items = items, near = near and true or false }
+					end
 				end
 			end
 		end
 	end
-	return lists
+	if speaker then
+		local mine = {}
+		for _, l in ipairs(lists) do if l.near then mine[#mine + 1] = l end end
+		if #mine > 0 then lists = mine end
+	end
+	local out = {}
+	for _, l in ipairs(lists) do out[#out + 1] = l.items end
+	return out
+end
+-- A question whose choices are the messages straight after it ("Visit which room?" at the
+-- Quester's Rest door: Royal Suite, Prince Princeton's Room, ... 24 of them): n short labels
+-- after the question's own message, in a message bank the game has loaded.
+function question_items(m, n)
+	local key = m .. "\0"
+	for _, rg in ipairs({ { 0x0211C000 - 0x4000, 0x28000 }, { 0x02300000, 0xC0000 } }) do
+		local blob = mem_str(rg[1], rg[2])
+		local at = 1
+		while true do
+			local i = blob:find(key, at, true)
+			if not i then break end
+			at = i + 1
+			local items, p, ok = {}, i + #key, true
+			for _ = 1, n do
+				local e = blob:find("\0", p, true)
+				if not e then ok = false break end
+				local raw = blob:sub(p, e - 1)
+				local t = clean(raw)
+				if t == "" or #raw > 60 or raw:find("//", 1, true) or raw:find("<PAGE>", 1, true) or raw:find("<YESNO>", 1, true)
+					or raw:find("<ADD>", 1, true) or raw:find("<END>", 1, true) or t:find("[%.%?!]$") then ok = false break end
+				items[#items + 1] = t
+				p = e + 1
+			end
+			if ok and #items == n then return items end
+		end
+	end
+	return nil
 end
 function read_choice()
 	local m = menu_raw_seen
 	local asking = m:sub(-5) == "<ADD>" and (m:find("<PAGE>", 1, true) or m:find("//", 1, true) or m:find("<N_TURN>", 1, true))
-	if not asking then choice.sig, choice.items, choice.last = nil, nil, nil return end
+	-- (a plain question with no speaker, such as the Quester's Rest door's "Visit which room?")
+	-- (a question with no speaker, such as the Quester's Rest door's "Visit which room?", is only
+	-- on the page, not in the menu buffer: its message in the bank is the page's text and <ADD>)
+	local plain = false
+	if not asking then
+		local qt = cstring(u32(PAGE_START), 200):match("^([^\n\r\255<]-%?)\n\255")
+		if qt and #qt > 3 and #qt < 100 and not qt:find("//", 1, true) then m, plain = qt .. "<ADD>", true end
+	end
+	if not asking and not plain then choice.sig, choice.items, choice.last = nil, nil, nil return end
 	-- the same question asked again (talking to Erinn twice) is a new question
 	local sig = m .. "#" .. tostring(msg_serial)
 	if sig ~= choice.sig then
@@ -8190,10 +8483,25 @@ function read_choice()
 	-- is not there yet, or if there are several to choose from (the window's count decides)
 	if not choice.items and frame >= (choice.retry or 0) and frame - choice.since < 300 then
 		choice.retry = frame + 15
-		local lists = find_choice_lists()
+		local lists = find_choice_lists(m:match("//([^/]+)//") and ("//" .. m:match("//([^/]+)//") .. "//") or nil)
 		if MENU_DEBUG then log_line("choice lists " .. #lists) end
 		if #lists == 1 then choice.items, choice.cands = lists[1], nil
 		elseif #lists > 1 then choice.cands = lists end
+	end
+	-- no list of choices among the messages: the messages after the question, as many as the
+	-- window has (its cursor block's count)
+	if not choice.items and not choice.cands and frame - choice.since >= 15 and frame >= (choice.next_scan or 0) and frame - choice.since < 300 then
+		choice.next_scan = frame + 15
+		for _, x in ipairs(find_selfptr(0x02380000, 0x40000, -0x10)) do
+			local c = x - 0x30
+			if u32(c + 0x24) == c + 0x0C and u32(c + 0x2C) == c + 0x1C then
+				local n = u32(c + 4)
+				if n >= 2 and n <= 60 then
+					local its = question_items(m, n)
+					if its then choice.items, choice.ctl = its, c break end
+				end
+			end
+		end
 	end
 	if not choice.items and choice.cands and not choice.ctl and frame >= (choice.next_scan or 0) and frame - choice.since < 300 then
 		choice.next_scan = frame + 15
@@ -8234,6 +8542,10 @@ function read_choice()
 	local cur
 	if choice.ctl and u32(choice.ctl + 0x30) == choice.ctl + 0x20 then
 		cur = u32(choice.ctl + 0x20)
+		-- a list in pages (the Quester's Rest rooms: 4 pages of 6, left and right turn the page):
+		-- pages at +8, rows on a page at +0x10, the page at +0x18, the row at +0x20
+		local pages, rows, page = u32(choice.ctl + 8), u32(choice.ctl + 0x10), u32(choice.ctl + 0x18)
+		if pages > 1 and pages <= 20 and rows >= 1 and rows <= 20 and page < pages and cur < rows then cur = page * rows + cur end
 	else
 		local player = u32(PLAYER_PTR)
 		cur = inram(player, 0x260) and u8(player + 0x250) or 0
@@ -8869,6 +9181,7 @@ function route_request(beacon)
 					if rem2 < rem - 0.4 then p, rem = p2, rem2 end
 				end
 			end
+			p, rem = plan_past_doors(nv, px, py, pz, gx, gz, it.y0 and (it.y0 + 1) or nil, avoid, p, rem)
 			if rem > 1.5 then
 				local p2, rem2 = find_path(nv, px, pz, gx, gz, 0.3, false, 20000, avoid)
 				if rem2 < rem - 1 then p, rem = p2, rem2 end
@@ -8967,6 +9280,48 @@ end
 -- it; a chime at each turn and on arriving. "Ahead" is up on the screen, the way the D-pad walks
 -- you. The way is worked out again when you wander off it.
 BEACON = nil
+-- the only way passes in front of a house door (Bloomingdale's street past the workshop's two
+-- doors): go by it after all, rather than not at all
+function plan_past_doors(nv, sx, sy, sz, gx, gz, gy, avoid, p, rem)
+	LAST_THROUGH = nil
+	if rem <= 1.0 then return p, rem end
+	local av2, any = {}, false
+	-- (first keeping off just the doorway itself, then not at all)
+	for _, a in ipairs(avoid) do
+		if a.tdoor then
+			any = true
+			local cx, cz = (a.x0 + a.x1) / 2, (a.z0 + a.z1) / 2
+			av2[#av2 + 1] = { x0 = cx - 0.45, x1 = cx + 0.45, z0 = cz - 0.45, z1 = cz + 0.45, y0 = a.y0, y1 = a.y1, pad = 0.05, tdoor = true }
+		else av2[#av2 + 1] = a end
+	end
+	if not any then return p, rem end
+	local p2, rem2 = plan_path(nv, sx, sy, sz, gx, gz, gy, 0.3, true, 30000, av2)
+	if rem2 < rem - 0.4 then p, rem = p2, rem2 end
+	if rem <= 1.0 then return p, rem end
+	local av3 = {}
+	for _, a in ipairs(avoid) do if not a.tdoor then av3[#av3 + 1] = a end end
+	p2, rem2 = plan_path(nv, sx, sy, sz, gx, gz, gy, 0.3, true, 30000, av3)
+	if rem2 < rem - 0.4 then
+		-- (and the route goes in at a door: the way is through that building, Bloomingdale's
+		-- workshop from its yard; say which door, for the walk to go on through it)
+		local prev = { sx, sz }
+		for _, q in ipairs(p2 or {}) do
+			for _, a in ipairs(avoid) do
+				if a.tdoor and not LAST_THROUGH then
+					local cx, cz = (a.x0 + a.x1) / 2, (a.z0 + a.z1) / 2
+					local vx, vz = q[1] - prev[1], q[2] - prev[2]
+					local L2 = vx * vx + vz * vz
+					local t = L2 > 0 and math.max(0, math.min(1, ((cx - prev[1]) * vx + (cz - prev[2]) * vz) / L2)) or 0
+					local qx, qz = prev[1] + t * vx, prev[2] + t * vz
+					if (qx - cx) ^ 2 + (qz - cz) ^ 2 < 0.5 then LAST_THROUGH = { x = cx, z = cz, id = a.door_id, label = a.door_label } end
+				end
+			end
+			prev = q
+		end
+		return p2, rem2
+	end
+	return p, rem
+end
 function beacon_stop(msg)
 	BEACON = nil
 	if msg then say(msg, true) end
@@ -8981,6 +9336,7 @@ function beacon_plan(b, nv, px, py, pz)
 				if rem2 < rem - 0.4 then p, rem = p2, rem2 end
 			end
 		end
+		p, rem = plan_past_doors(nv, px, py, pz, gx, gz, gy, avoid, p, rem)
 		if rem > 1.5 then
 			local p2, rem2 = find_path(nv, px, pz, gx, gz, 0.3, false, 20000, avoid)
 			if rem2 < rem - 1 then p, rem = p2, rem2 end
@@ -9601,6 +9957,7 @@ while true do
 		pcall(watch_tricks, pad)
 		PT("walk_step") walk_step(controller_pressed)
 		walk_resume_step()
+		pcall(through_step)
 		PT("route_step") route_step()
 		beacon_step()
 		pcall(reach_big_step)

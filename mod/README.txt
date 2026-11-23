@@ -17,7 +17,7 @@ ROM with its BUILD.bat or its installer (github.com/sackchief/dqix-enhanced). Th
    it is), adds the mod to it, builds the game again (a few minutes) and puts the mod in its
    own folder, "DQ9 access" in your Documents. Your save and settings are not touched.
 3. Run Dragon Quest IX as usual (your shortcut, or dqix.exe in the game folder). After a moment
-   you hear "Dragon Quest 9 access 0.54 for the PC version is running. Press K for keys."
+   you hear "Dragon Quest 9 access 0.55 for the PC version is running. Press K for keys."
 
 You can run "Install DQ9 Access.bat" again at any time (there is a copy in the DQ9 access
 folder): for example after updating the PC version itself, which builds the game again
@@ -713,3 +713,43 @@ need to run the installer again.
   are ladders, not "in other rooms".
 - Auto walk squeezes along narrower ledges further off (the path round the second floor of the
   Heights of Loneliness is barely wider than you).
+
+CHANGES SINCE 0.54
+------------------
+- Shops: equipment that changes a percentage (kung fu shoes' Evasion Chance) left out the
+  people who can wear it. It now says "Jezza, Evasion Chance up 2.5%, 0.5% to 3%".
+- Shops, "How many?": the list of how many each person holds no longer mixes in the equipment
+  comparison ("Defence, Retro, Lebon 81"), and someone holding none says "none".
+- Auto walk goes through a building when that is the only way. Out of Bloomingdale's workshop
+  into its back yard, the weapon shop could not be walked to ("As close as you can get"): the
+  only way out of the yard is back through the workshop. Now it says "The way is through the
+  workshop: in at its door, out by its other door, and on", walks in, out of the workshop's
+  other door, and on to the weapon shop. (A door that takes a moment to swing open no longer
+  counts as being stuck.)
+- Out of a building by a door named after the place ("Bloomingdale door") says "Bloomingdale",
+  not "Bloomingdale, Bloomingdale".
+- Someone with people all round them (Marion at her table, between her two guests): auto walk
+  kept bumping into the guests and gave up ("Stuck"). It now goes to the spot in front of them,
+  the way they face, across whatever is in between (Marion: across her table, from its far
+  side), or failing that a free spot straight beside them; turns you to face them and says "In
+  front of Marion. Press A to talk." (From beside her, A spoke to a guest.)
+- The game window's menu bar (Game, Graphics, Screen, View, Wireless, Modern, Mods, Help) now
+  opens from the keyboard, as in any Windows program, so your screen reader reads it: Alt and
+  the menu's letter (Alt+W for Wireless, Alt+G for Game), or Alt on its own and then the
+  arrow keys (Escape closes it). Not in fullscreen, where the menu bar is hidden. This changes
+  the game itself (game patch 4): close the game and run Install DQ9 Access.bat once after
+  updating, when the game says so.
+- DQVC (Sellma's shop): each item now says its price and how many are left ("Metal slime
+  spear, 45000 gold, 1 left, 5 of 6"), then, after its description, what it does for each of
+  you ("Attack. Retro, cannot equip. ... Bish, up 43, 173 to 216") or, for other items, how
+  many each of you and the bag already hold ("Held: Retro none, ... bag 5").
+- Pavo, at the right end of the Quester's Rest counter: auto walk took you round behind the
+  counter, where he only says "......". It now takes you to the front of the counter, facing
+  him, where he talks to you properly (people behind a counter are talked to from the side
+  they face).
+- Erinn's menu (Stay at the inn, Canvass for guests, View the guestbook, Leave) was silent
+  after you had been in DQVC: the game had put her messages somewhere the mod did not look.
+  It now finds them there too.
+- The Quester's Rest door's "Visit which room?" list was silent. It now reads each room as you
+  move ("Royal Suite, 1 of 24"); up and down move through a page of six, left and right turn
+  the page.
