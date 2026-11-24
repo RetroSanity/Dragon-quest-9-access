@@ -48,7 +48,7 @@
 -- Anything read from memory is checked before it is spoken; a check that fails stays silent.
 
 ------------------------------------------------------------------------------ settings ------
-MOD_VERSION = "0.55"
+MOD_VERSION = "0.56"
 MENU_DEBUG = false   -- true: log the menu buffer and look for the yes/no box in snapshots
 WALK_DEBUG = false   -- true: log auto walk's route and position (in the speech log)
 -- (what the mod last pressed for you, for that log)
@@ -1754,9 +1754,9 @@ MAPIDS = {
 	[7802]={"D08M02","Interior - B1-A"}, [7803]={"D08M03","Interior - B1-B"},
 	[7804]={"D08M04","Interior - B1 Room"}, [7805]={"D08M05","Interior - B2"}, [7806]={"D08M06","Interior - B3"},
 	[7807]={"D08M07","Interior - B1 Dungeon"}, [7808]={"D08M08","Interior - B2 Graves"},
-	[7809]={"D08M09","Interior - B3 Boss Room"}, [7900]={"D09","The Bad Cave"}, [7901]={"D09M01"},
-	[7902]={"D09M02"}, [7903]={"D09M03","Interior - Lv 1-03"}, [7904]={"D09M04"},
-	[7905]={"D09M05","Interior - B2-01"}, [7906]={"D09M06","Interior - B2-02"}, [8201]={"D12M01"},
+	[7809]={"D08M09","Interior - B3 Boss Room"}, [7900]={"D09","The Bad Cave"}, [7901]={"D09M01","The Bad Cave - Lv 1"},
+	[7902]={"D09M02","The Bad Cave, the caves under Lv 1"}, [7903]={"D09M03","The Bad Cave - Lv 1, side room"}, [7904]={"D09M04","The Bad Cave - B1"},
+	[7905]={"D09M05","The Bad Cave - B2"}, [7906]={"D09M06","The Bad Cave - B2, the boss's lair"}, [8201]={"D12M01"},
 	[8202]={"D12M02"}, [8203]={"D12M03"}, [8204]={"D12M04"}, [8205]={"D12M05"},
 	[8206]={"D12M06","Gerzuun - Underground Passage"}, [8207]={"D12M07","Hidden Passage"},
 	[8208]={"D12M08","Depths"}, [8301]={"D13M01","Interior - B1 Library"}, [8302]={"D13M02"},
@@ -2546,7 +2546,9 @@ EVENT_SPOTS = {
 	[5700] = { {14,4,14,4,-12.87,-8.00,-20.76,-9.30,314}, {14,4,14,4,-14.37,9.80,-20.67,8.30,45}, {14,4,14,4,12.16,-11.41,11.06,-16.11,45}, {14,4,14,4,-11.15,-11.57,-12.25,-15.97,314}, {14,4,14,4,13.49,-12.23,11.90,-17.42,45}, {14,4,14,4,-10.01,-13.89,-15.31,-15.49,45}, {14,6,14,6,12.99,-13.24,10.19,-14.24,314}, {14,6,14,6,-11.35,-11.62,-12.35,-16.22,314}, {14,6,14,6,13.85,-13.80,10.56,-14.80,314}, {14,6,14,6,-10.69,-14.03,-14.08,-15.03,222} },
 	[5701] = { {14,4,14,5,-15.17,10.97,-16.37,9.37,314} },
 	[5702] = { {14,6,14,6,-3.28,2.72,-4.28,1.42,28}, {14,6,14,6,3.47,1.74,2.17,0.74,331} },
-	[7901] = { {9,3,9,3,25.25,-1.21,19.66,-3.71,359} },
+	-- (with the heights it covers: the Bad Cave's is on the kidnappers' ledge, over the floor
+	-- by their door, where walking about does nothing)
+	[7901] = { {9,3,9,3,25.25,-1.21,19.66,-3.71,359,2.77,5.37} },
 	[8303] = { {12,5,12,5,3.42,7.35,0.13,6.35,80} },
 	[9108] = { {19,2,19,99,6.04,3.89,-1.45,2.29,51} },
 }
@@ -2672,6 +2674,20 @@ EXIT_NAMES_XY = {
 	D07M07 = { { 15.5, -17.0, "way back to floor 6" }, { -8.0, 21.0, "way on, south, outside" } },
 	D07M08 = { { 5.5, 0.0, "way back to floor 1" } },
 	D07M09 = { { -6.5, -3.4, "way back in, to floor 7" }, { 4.15, -11.7, "stairs up to Zere Rocks" } },
+	-- The Bad Cave (D09): two entrances; the left one is the way in for the story
+	D09 = { { -1.59, -13.53, "cave entrance, left, the way in, to the kidnappers' table" },
+		{ 7.57, -13.92, "cave entrance, right, to the kidnappers' door" } },
+	D09M01 = { { 13.78, 19.81, "way out, back outside, left entrance" }, { 25.71, 21.37, "way out, back outside, right entrance" },
+		{ 27.99, -2.83, "through the kidnappers' door, down into the caves" }, { 16.07, -8.46, "hole, east, down into the caves" },
+		{ 2.39, -31.87, "way back down into the caves" }, { -3.30, -31.97, "way back down into the caves" },
+		{ -10.05, -31.72, "way on, west, through a side room, to floor 1's far side" },
+		{ -16.32, -32.16, "way back east, through the side room" }, { -29.43, -18.53, "way on, west, down to B1" } },
+	D09M02 = { { -32.18, -3.22, "way out, west end, up to floor 1, toward B1" }, { -25.38, -3.29, "way out, west, up to a chest nook on floor 1" },
+		{ 10.23, 17.78, "way back up the hole to floor 1" }, { 21.71, 28.52, "way back through the kidnappers' door to floor 1" } },
+	D09M03 = { { 10.02, 12.22, "way back east, to floor 1" }, { 0.61, 17.01, "way on, west, to floor 1's far side" } },
+	D09M04 = { { 41.59, 12.25, "way back up to floor 1" }, { -24.29, -12.5, "way on, down to B2" } },
+	D09M05 = { { -26.66, 42.15, "way back up to B1" }, { -2.9, -38.52, "way on, north, to the boss" } },
+	D09M06 = { { 0.0, 21.66, "way back to B2" } },
 	D06M01 = { { -4.0, -6.7, "cave mouth under the ledge, into the 1st floor" },
 	           { -21.0, -11.8, "stairs down to the cave mouth, into the 1st floor" },
 	           { -22.6, -15.7, "west cave mouth on the ledge, to the 2nd floor and on to Lleviathan" },
@@ -3191,7 +3207,7 @@ NPC_NAMES = {
 	M05 = { [1] = "Jona", [2] = "Bryson", [3] = "Mayor Bryce", [51] = "Glitzy" },
 	M07 = { [21] = "Rocky" },
 	M08 = { [18] = "Colden", [24] = "Buster" },
-	M09 = { [17] = "Pete", [23] = "Mayor Daff", [31] = "Mayoress Daff", [35] = "Marion", [39] = "Randolph", [51] = "Meowser", [53] = "Sister Cindy", [60] = "Dusty", [76] = "Wallace", [77] = "Christina", [78] = "Rayne", [79] = "Bert" },
+	M09 = { [17] = "Pete", [23] = "Mayor Daff", [31] = "Mayoress Daff", [35] = "Marion", [39] = "Randolph", [40] = "ghost", [51] = "Meowser", [53] = "Sister Cindy", [60] = "Dusty", [76] = "Wallace", [77] = "Christina", [78] = "Rayne", [79] = "Bert" },
 	M10 = { [22] = "Batzorig", [27] = "Batkhaan", [28] = "Sarantsatsral", [100] = "Larstastnaras", [101] = "Chuluun", [102] = "Enkh", [103] = "Phoebe", [208] = "Conner" },
 	M11 = { [1] = "Headmaster", [18] = "Fred", [50] = "Itchy", [51] = "Archie", [52] = "Boomer", [53] = "Kylie", [54] = "Max", [55] = "Marco", [56] = "Alchemilla", [57] = "Buckler", [58] = "Mrs Mallet", [59] = "Klaus", [60] = "Paulo", [61] = "Bumbles", [62] = "Toadie", [63] = "Fanny", [64] = "Mr Whippy", [65] = "Cecil", [66] = "Lance", [67] = "Madame Couteau" },
 	M12 = { [5] = "Charlene", [15] = "Mayor Doffish", [16] = "Wallace", [31] = "Forger", [100] = "Kevo", [101] = "Stasha", [102] = "Scarface", [104] = "Hordy", [107] = "Clare Voyant", [108] = "Mayor Doffish" },
@@ -3221,10 +3237,19 @@ NPC_NAMES = {
 	X05 = { [133] = "Columba", [139] = "Apus Major", [203] = "Sterling", [204] = "Stella", [205] = "Apus Major" },
 }
 -- the person's name from the table above: the map's area and the number in their placement record
+-- someone who is something else for part of the story (Marion, after the Bad Cave: only her
+-- doll, by the grave in her garden)
+NPC_STORY_NAMES = { M09 = { [35] = { map = 1906, from = 904, to = 904, name = "Marion's doll, by the grave" } } }
 function npc_game_name(o)
 	local r = u32(o + 0x0C)
 	if not inram(r, 0x20) then return nil end
 	local c = map_code()
+	local sn = c and NPC_STORY_NAMES[c:sub(1, 3)]
+	sn = sn and sn[u8(r)]
+	if sn and u16(MAPID) == sn.map then
+		local now = story_now()
+		if now >= sn.from and now <= sn.to then return sn.name end
+	end
 	local t = c and NPC_NAMES[c:sub(1, 3)]
 	return t and t[u8(r)]
 end
@@ -3549,6 +3574,17 @@ local function sparkles()
 end
 
 -- Story event spots: boxes on the map that start a story scene when you walk in, taken from the
+-- the story spots worth walking to (map:event): listed in the objects list until you have been
+EVENT_LABELS = {
+	-- the Bad Cave: the end of the kidnappers' ledge, where you overhear them; until then the
+	-- chair at their table will not let you sit
+	["7901:359"] = "end of the ledge, above the kidnappers' door: walk here to overhear the kidnappers",
+}
+-- spots the game itself records: seen once this holds (a door_cond code), not when walked into
+-- (the overhearing sets slot flag 2); and spots that do nothing until something else is done
+-- (slot flag 1: the ghost and the gravestone in Bloomingdale)
+EVENT_SEEN_IF = { ["7901:359"] = 0x40002 }
+EVENT_NEEDS = { ["7901:359"] = { 0x40001, "not yet, finish Bloomingdale first: the ghost in Marion's mansion, then the gravestone in its garden" } }
 -- game's trigger files. Each is only live for part of the story (chapter and step), which the
 -- game keeps in two bytes. Once you have walked into one it is marked as done.
 STORY_PROGRESS = 0x02108844
@@ -3560,21 +3596,29 @@ local function event_spots()
 	local now = u8(STORY_PROGRESS) * 100 + u8(STORY_PROGRESS + 1)
 	for _, e in ipairs(spots) do
 		if now >= e[1] * 100 + e[2] and now <= e[3] * 100 + e[4] then
-			local key = u16(MAPID) .. ":" .. e[9] .. ":" .. math.floor(e[5]) .. ":" .. math.floor(e[6])
+			local key = u16(MAPID) .. ":" .. e[9] .. ":" .. math.floor(e[5]) .. ":" .. math.floor(e[6]) .. (e[10] and (":y" .. math.floor(e[10])) or "")
+			local base = u16(MAPID) .. ":" .. e[9]
+			local seen = events_done[key]
+			if EVENT_SEEN_IF[base] then seen = door_cond(EVENT_SEEN_IF[base]) end
 			local x0, x1 = math.min(e[5], e[7]), math.max(e[5], e[7])
 			local z0, z1 = math.min(e[6], e[8]), math.max(e[6], e[8])
-			list[#list + 1] = { label = "story event" .. (events_done[key] and ", already seen" or ""),
+			local need = EVENT_NEEDS[base]
+			list[#list + 1] = { label = "story event" .. (seen and ", already seen" or ""),
 			                    x = (x0 + x1) / 2, z = (z0 + z1) / 2, event = true, key = key,
-			                    x0 = x0, x1 = x1, z0 = z0, z1 = z1 }
+			                    self_tracked = EVENT_SEEN_IF[base] and true or nil,
+			                    not_yet = (not seen and need and not door_cond(need[1])) and need[2] or nil,
+			                    x0 = x0, x1 = x1, z0 = z0, z1 = z1, y0 = e[10], y1 = e[11],
+			                    fy = e[10] and (e[10] + 1.2) or nil }
 		end
 	end
 	return list
 end
 local function watch_events()
-	local px, _, pz = player_pos()
+	local px, py, pz = player_pos()
 	if not px then return end
 	for _, e in ipairs(event_spots()) do
-		if not events_done[e.key] and px >= e.x0 - 0.5 and px <= e.x1 + 0.5 and pz >= e.z0 - 0.5 and pz <= e.z1 + 0.5 then
+		if not events_done[e.key] and not e.self_tracked and px >= e.x0 - 0.5 and px <= e.x1 + 0.5 and pz >= e.z0 - 0.5 and pz <= e.z1 + 0.5
+			and (not e.y0 or (py >= e.y0 - 0.3 and py <= e.y1 + 0.3)) then
 			events_done[e.key] = true
 			local f = io.open(PLACES_FILE, "a")
 			if f then f:write(e.key .. "|eventdone|0|0|story event\n") f:close() end
@@ -3716,6 +3760,11 @@ end
 -- Doors named after where they go, by place ("map code#map id") and where the door stands.
 -- (Observatory level 1: the main hall, map 4105, and the rooms round it, map 4106)
 DOOR_NAMES_AT = {
+	-- (Bloomingdale: the gate at the top of the steps, into Marion's front yard; the game has it
+	-- as a door to nowhere of its own)
+	["M09M00#1900"] = {
+		{ 2.99, -13.41, "gate to Marion's yard" },
+	},
 	["X01M05#4105"] = {
 		{ -3.25, -11.9, "prayer room door, left" },        -- the save point: the angel with a ponytail
 		{ 3.25, -11.9, "prayer room door, right" },
@@ -3758,6 +3807,26 @@ function door_cond(c)
 	end
 	return false        -- carrying a key, and the rest: not counted
 end
+-- The Bad Cave (story 9.3): the kidnappers can only be overheard once, back in Bloomingdale,
+-- you have talked to the ghost in Marion's mansion (slot flag 0) and then examined the
+-- gravestone in its garden (slot flag 1); the game's trigger rules, M09 and D09.
+function bad_cave_ready() return door_cond(0x40001) end
+function bad_cave_not_yet()
+	local first = door_cond(0x40000) and "You have talked to the ghost; now go out into the mansion's garden and examine the gravestone there, in the objects list."
+		or "Go into Marion's mansion, the big house in the north of Bloomingdale, and talk to the ghost on the ground floor, in the people list: it only says \"......\". Then go out into the mansion's garden and examine the gravestone there, in the objects list."
+	return {
+		"Not yet: there is a step left in Bloomingdale. Until it is done, the kidnappers here cannot be overheard, and their chair only says it is a rickety old chair.",
+		first,
+		"Then come back here: walk to the end of the ledge to overhear the kidnappers, read the sign by their table, then sit in the chair.",
+	}
+end
+-- after Tyrantula (story 9.4): the doll is back in Bloomingdale (trigger M09: Marion's garden,
+-- the doll, event 9500, gives the fygg and the ship; then the harbour man)
+BAD_CAVE_AFTER = {
+	"Tyrantula is beaten. Leave the Bad Cave, with Evac or a chimaera wing or by walking back out, and go to Bloomingdale.",
+	"In Bloomingdale, go into Marion's mansion, the big house in the north, and out into its garden, the graveyard. Marion's doll sits by the grave: it is in the people list, Marion's doll, by the grave. Examine it: that gives you the fygg, and Marion's ship is yours.",
+	"Then talk to the old man at the harbour, in the people list, about the ship.",
+}
 -- is this door (its part numbers) locked right now? -> nil, or true and the key that opens it
 function door_lock(mapid, gids)
 	local db = DOOR_LOCKS and DOOR_LOCKS[mapid]
@@ -3785,7 +3854,7 @@ function door_lock(mapid, gids)
 	return true, key
 end
 ------------------------------------------------------------------------------ story guide ---
--- LT + Back (or Y on the keyboard): where to go next in the story, and how to open the locked
+-- LT + RT (or Y on the keyboard): where to go next in the story, and how to open the locked
 -- doors where you are. The step comes from the game's own story counter (chapter * 100 + step,
 -- as used for the door locks) and, inside a chapter, from the places you have been and the
 -- bosses you have beaten (kept in dq9-access-guide.txt). The words are a short walkthrough.
@@ -3819,8 +3888,9 @@ GUIDE = {
 	{ ch = { 7, 8 }, areas = { "S08", "F09", "F11", "M08" }, text = "The boat lands at Slurry Quay. Head south east to Dourbridge. In the daytime, cross the upper bridge for a scene, talk to the man in the northernmost building, then to Cap'n Max Meddlin in the tent in the north east; he gives you the Thief's Key for mini medals." },
 	{ ch = { 8, 9 }, areas = { "F12", "M09", "F10", "S12" }, text = "Leave Dourbridge going east, then south, across the Lonely Plains to Bloomingdale, to the south west. Then go to the Heights of Loneliness, north east of Bloomingdale." },
 	{ ch = { 8, 9 }, areas = { "D07", "M07" }, boss = "Garth Goyle", text = "Climb the Heights of Loneliness to Zere Rocks at the top. Talk to the slime in the building in the north east, then leave to meet the boss, Garth Goyle. Afterwards a ghost goes into the basement next to the slime's hut; talk to it, then go back to Bloomingdale." },
-	{ ch = { 9, 9 }, areas = {}, text = "In Bloomingdale: talk to the old man at the harbour; in the daytime visit Marion at the mansion in the north; talk to the old woman in the small house in the west; talk to Randolph at the armour shop in the middle of town; talk to the ghost and follow it; then examine the gravestone in the south." },
-	{ ch = { 9, 10 }, areas = { "D09" }, boss = "Tyrantula", text = "Go to the Bad Cave, north of Bloomingdale. On the first floor, sit in the lone chair at the middle table; a kidnapper comes out and puts down a ladder. The boss at the end is Tyrantula. Then examine the southern gravestone in Bloomingdale again; Marion's boat at the harbour is now yours to sail." },
+	{ ch = { 9, 9 }, areas = {}, text = "In Bloomingdale: talk to the old man at the harbour; in the daytime visit Marion at the mansion in the north; talk to the old woman in the small house in the west; talk to Randolph at the armour shop in the middle of town; then go into Marion's mansion and talk to the ghost on the ground floor, in the people list (it only says \"......\"); then go out into the mansion's garden and examine the gravestone there. Until you have done both, the kidnappers in the Bad Cave cannot be overheard and their chair does nothing." },
+	{ ch = { 9, 10 }, areas = { "D09" }, boss = "Tyrantula", text = "Go to the Bad Cave, north of Bloomingdale. On the first floor, walk to the end of the ledge to overhear the kidnappers, read the sign by their table, then sit in the lone chair at the table; a kidnapper comes out and puts down a ladder. The boss at the end is Tyrantula. Then go back to Bloomingdale for the fygg." },
+	{ ch = { 9, 10 }, st = { 904, 904 }, areas = { "D09", "M09" }, text = "Tyrantula is beaten. Go back to Bloomingdale, into Marion's mansion and out into its garden, the graveyard. Marion's doll sits by the grave, in the people list: examine it for the fygg, and Marion's ship is yours. Then talk to the old man at the harbour, in the people list, about the ship." },
 	{ ch = { 9, 11 }, areas = { "C02", "F15" }, text = "Sail to Gleeba, the desert town on the island to the north. Agree to help the Chancellor on the second floor of the palace. Use the Clap party trick by the north western tree in the shade outside the palace to scare out a lizard, and give it to the Chancellor. Talk to the soldier at the bath on the first floor and the woman south of the bath door. On the roof, go round the big oval building and in from the north to get the Magic Key. Then talk to the man on the fountain and jump into the fountain." },
 	{ ch = { 9, 11 }, areas = { "D08" }, boss = "Grand Lizzier", text = "Follow the overgrown lizard into the well, down into the Plumbed Depths. The Queen is on the third floor down, and the boss is the Grand Lizzier. Afterwards, the waterfall in the west of Gleeba hides an item." },
 	{ ch = { 10, 11 }, areas = { "M10", "S06", "F21" }, text = "Sail to Batsureg, on the island north of Gleeba. Talk to Chief Batkhaan in the north western yurt, go to the Hunters' Yurts north of town and examine the northern one, then talk to Batzorig in the southern yurt. Then go north to Mount Ulbaruun, where Batzorig is in a cave to the west." },
@@ -4157,6 +4227,78 @@ DUNGEON_GUIDE = {
 			"North of him, west of the stairs, is a blue chest, in the items list. Then go up the stairs to Zere Rocks: the way on, in the exits list. The boss is up there; heal first.",
 		},
 	},
+	-- The Bad Cave (D09), north of Bloomingdale: sit in the kidnappers' chair on floor 1's ledge,
+	-- down their ladder, east into the caves below, west along them and back up to floor 1's far
+	-- side, then down through B1 and B2 to Tyrantula. Floor 1 is in pieces that only join through
+	-- the caves, so its steps go by the piece you are standing in.
+	D09 = { name = "The Bad Cave", before = 904, done_at = 904, done_text = BAD_CAVE_AFTER,
+		M00 = function()
+			if story_now() == 903 and not bad_cave_ready() then return bad_cave_not_yet() end
+			return {
+			"Outside the Bad Cave, north of Bloomingdale. Two cave entrances face you, to the north, in the exits list. The left one, up on the higher ground, is the way in: it takes you onto a ledge inside, where the kidnappers have a table. The right one, by the sign saying no admittance, only leads to the kidnappers' door, which stays locked for now.",
+			"Heal before you go in. Inside: walk to the end of the ledge to overhear the kidnappers, read the sign by their table, sit in the chair at the table, climb down the ladder they put out, then go through the caves and down two floors to the boss, Tyrantula.",
+			}
+		end,
+		M01 = function()
+			local n = nav_ready()
+			local px, py, pz = player_pos()
+			local R = n and px and reach_region3(n, px, py, pz, {}, 8000, 0.25)
+			local function has(x, z, y) return R and reach_near3(R, n, x, z, y) end
+			if py and py > 3.0 and has(13.4, 13.0, 3.9) then
+				if story_now() == 903 and not bad_cave_ready() then return bad_cave_not_yet() end
+				local heard, read = door_cond(0x40002), flag_bit(STORY_BASE + 0x8C, 0xD9)
+				local t = {}
+				if not heard then
+					t[#t + 1] = "Floor 1, on the kidnappers' ledge. First walk east along the ledge to its end, above the kidnappers' door: you overhear them talking. It is in the objects list: end of the ledge, above the kidnappers' door. Until you have heard them, the chair only says it is a rickety old chair."
+				end
+				if not read then
+					t[#t + 1] = (heard and "Floor 1, on the kidnappers' ledge. You have overheard the kidnappers. Now " or "Then ") .. "go to the table in the middle of the room and read the sign beside it, in the objects list: walk to it and press A. The chair does nothing until you have read it."
+				end
+				t[#t + 1] = ((heard and read) and "Floor 1, on the kidnappers' ledge. You have overheard them and read their sign. Now " or "Then ") .. "sit in the lone chair at the table, the rickety old chair in the objects list: walk to it, press A, and say yes."
+				t[#t + 1] = "A kidnapper comes out to talk to you, then puts down a ladder beside the ledge. Climb down it: pick it in the items list, and auto walk takes you down. Then pick the hole to the east, hole, east, down into the caves, in the exits list: the mod's map shows walls round the foot of the ladder that are not really there, so auto walk heads straight for the hole."
+				return t
+			end
+			if has(25.0, 18.4, 1.6) then
+				return { "Floor 1, inside the right-hand entrance. The kidnappers' door, to the north, is locked until you have sat in the chair at their table: go back out and in by the left entrance. Once the door is open, it is another way down into the caves." }
+			end
+			if has(2.5, -30.4, 1.6) and not has(-3.3, -30.0, 1.6) then
+				return { "A nook on floor 1. The chest here, in the items list, has a Hephaestus' flame. It goes nowhere else: go back down into the caves, then take the exit at their west end, way out, west end." }
+			end
+			if has(-3.3, -30.0, 1.6) then
+				return { "Floor 1, the north side. The way on is way on, west, through a side room, in the exits list: it comes out on floor 1's far side, where the way down to B1 is." }
+			end
+			if has(-29.4, -16.8, 1.6) then
+				return {
+					"Floor 1, the far side. The way on is way on, west, down to B1, in the exits list.",
+					"Optional first: a blue chest, in the items list, up on a ledge in the middle of the room.",
+				}
+			end
+			return { "Floor 1, below the kidnappers' ledge. The way on is the hole to the east: hole, east, down into the caves, in the exits list. Auto walk heads straight there, though the mod's map shows walls round you that are not really there. The ladder back up to the ledge is in the items list." }
+		end,
+		M02 = {
+			"The caves under floor 1. Optional: the kidnappers' room in the north east, with cupboards and barrels and two chests, all in the items list. The cell door in the middle needs a key you do not have yet.",
+			"Then follow the narrow path west. At the west end two exits lead up to floor 1. Take the right one first, way out, west, up to a chest nook: its chest has a Hephaestus' flame. Come back down, then take the westernmost one, way out, west end: it leads on, through a side room, to the way down to B1.",
+		},
+		M03 = {
+			"A side room off floor 1. Walk through it: the way on is the exit to floor 1's far side, in the exits list.",
+		},
+		M04 = {
+			"B1. The way on is the exit down to B2, in the exits list, at the far west. Optional chests on the way, in the items list: one has a mini medal, another 1,700 gold coins.",
+			"Metal medleys live down here: they are worth a great deal of experience but run away, so hit them hard and fast.",
+		},
+		M05 = {
+			"B2. The way on is to the north, to the boss, in the exits list.",
+			"Careful: the blue chest near that exit is a cannibox, a monster in disguise and a hard fight. Leave it alone unless you are strong.",
+		},
+		M06 = function()
+			if story_now() >= 904 then return BAD_CAVE_AFTER end
+			return {
+			"The boss's lair. Heal everyone first. Go north: Marion is there. Talk to her; after the scene, examine the monster to fight the boss, Tyrantula.",
+			"Tyrantula acts twice a turn. Wind Sickles hits everyone, Venomissile hits everyone and can poison, and a sticky web can stop someone for a turn or two. Keep everyone's HP up and cure poison.",
+			"After the fight a scene plays by itself. Then go back to Bloomingdale for the fygg: the next step of the walkthrough says how.",
+			}
+		end,
+	},
 	-- Zere Rocks (M07): the slime in the north east house starts the boss, Garth Goyle
 	M07 = { name = "Zere Rocks", before = 803,
 		M00 = {
@@ -4219,6 +4361,8 @@ function dungeon_guide()
 	if sub == "" then sub = g.M00 and "M00" or "M01" end
 	local part = g[sub]
 	if g[sub .. "_open"] and code_unlocked_shortcut(g) then part, code = g[sub .. "_open"], code .. "open" end
+	-- (the boss beaten: what is left to do is elsewhere)
+	if g.done_at and g.done_text and story_now() >= g.done_at then part, code = g.done_text, code .. "done" end
 	-- (a part can depend on where in it you are: a function that says which steps)
 	if type(part) == "function" then
 		local ok, p2 = pcall(part)
@@ -4487,22 +4631,26 @@ local function build_nearby()
 	for _, d in ipairs(town_doors()) do ds[#ds + 1] = d end
 	name_doors(ds)
 	-- many exits into the same place (the archways all round a tower): list only the nearest
+	-- (only exits that would be read out the same: ones the mod names, "way out, west end", each
+	-- go somewhere different and are all listed, though they lead to the same map)
 	local same = {}
+	local function gk(d) return tostring(d.id) .. "|" .. (d.exit_label or d.label or "") end
 	for _, d in ipairs(ds) do
-		if d.kind == 0 then same[d.id] = (same[d.id] or 0) + 1 end
+		if d.kind == 0 then same[gk(d)] = (same[gk(d)] or 0) + 1 end
 	end
 	local nearest = {}
 	for _, d in ipairs(ds) do
-		if d.kind == 0 and same[d.id] >= 3 then
+		if d.kind == 0 and same[gk(d)] >= 3 then
 			local dd = (d.x - px) ^ 2 + (d.z - pz) ^ 2
-			if not nearest[d.id] or dd < nearest[d.id][2] then nearest[d.id] = { d, dd } end
+			if not nearest[gk(d)] or dd < nearest[gk(d)][2] then nearest[gk(d)] = { d, dd } end
 		end
 	end
 	for _, d in ipairs(ds) do
+		local k = gk(d)
 		d.exit_label = d.exit_label or d.label
-		if d.kind == 0 and same[d.id] >= 3 then
-			if nearest[d.id][1] == d then
-				d.label = d.exit_label .. ", nearest of " .. same[d.id]
+		if d.kind == 0 and same[k] >= 3 then
+			if nearest[k][1] == d then
+				d.label = d.exit_label .. ", nearest of " .. same[k]
 				list[#list + 1] = d
 			end
 		else
@@ -4512,6 +4660,14 @@ local function build_nearby()
 	local key = place_key()
 	for _, p in ipairs(places) do
 		if p.code == key and p.kind == "mark" then list[#list + 1] = { label = p.label, x = p.x, z = p.z, mark = true } end
+	end
+	-- story spots you have to walk to before the story goes on (in the objects list, until you
+	-- have been there)
+	for _, e in ipairs(event_spots()) do
+		local lb = EVENT_LABELS[u16(MAPID) .. ":" .. (e.key:match("^%d+:(%d+):") or "")]
+		if lb and not e.label:find("already seen", 1, true) then
+			list[#list + 1] = { label = lb .. (e.not_yet and (", " .. e.not_yet) or ""), x = e.x, z = e.z, fy = e.fy, story_spot = true }
+		end
 	end
 	-- People with the same name get a number each ("old man 1", "old man 2"), always the same one
 	-- for the same person while you are here (counted in the game's own order of people)
@@ -4639,6 +4795,7 @@ local function category_of(it)
 	-- switches) go with the items, where you look for things to do
 	if it.thing and it.label and (it.label:find("button", 1, true) or it.label:find("lever", 1, true)
 		or it.label:find("switch", 1, true) or it.label:find("control panel", 1, true)) then return "Items" end
+	if it.story_spot then return "Objects" end
 	if it.event then return "Events" end
 	if it.obj then return it.thing and "Objects" or "People" end
 	if it.kind == 1 then return "Doors" end
@@ -4735,6 +4892,32 @@ local function nav_load_index()
 	return nav_index
 end
 
+-- Walls the map file has but the game lets you walk through (the Bad Cave's floor 1: walls all
+-- round the foot of the kidnappers' ladder, though you walk straight east from there to the
+-- hole). Learned when you walk through one yourself, kept in dq9-access-walls.txt: map file,
+-- then the wall's two ends.
+WALLS_FILE = DIR .. "dq9-access-walls.txt"
+WALLS_PASS = {}
+do
+	local f = io.open(WALLS_FILE, "r")
+	if f then
+		for line in f:lines() do
+			local nm, a, b, c, d = line:match("^(%w+)|([%-%d%.]+)|([%-%d%.]+)|([%-%d%.]+)|([%-%d%.]+)")
+			if nm then
+				WALLS_PASS[nm] = WALLS_PASS[nm] or {}
+				local t = WALLS_PASS[nm]
+				t[#t + 1] = { tonumber(a), tonumber(b), tonumber(c), tonumber(d) }
+			end
+		end
+		f:close()
+	end
+end
+function wall_passable(name, w)
+	for _, q in ipairs(WALLS_PASS[name] or {}) do
+		if math.abs(q[1] - w[1]) < 0.02 and math.abs(q[2] - w[2]) < 0.02 and math.abs(q[3] - w[3]) < 0.02 and math.abs(q[4] - w[4]) < 0.02 then return true end
+	end
+	return false
+end
 local function bucket_add(t, x0, z0, x1, z1, v)
 	for i = math.floor(x0 / NB), math.floor(x1 / NB) do
 		for j = math.floor(z0 / NB), math.floor(z1 / NB) do
@@ -4803,9 +4986,11 @@ function nav_build(name)
 					w[5 + 2 * c] = ((p[c][1] - w[1]) * ax + (p[c][2] - w[2]) * az) / l
 					w[6 + 2 * c] = ys[c]
 				end
+				if not wall_passable(name, w) then
 				n.walls[#n.walls + 1] = w
 				bucket_add(n.wb, math.min(w[1], w[3]) - 0.8, math.min(w[2], w[4]) - 0.8,
 				           math.max(w[1], w[3]) + 0.8, math.max(w[2], w[4]) + 0.8, w)
+				end
 			end
 		end
 	end
@@ -4842,6 +5027,56 @@ function nav_prefetch()
 		nav_failed = name
 		nav_job = { name = name, co = coroutine.create(function() return nav_build(name) end) }
 	end
+end
+-- you walked from one spot to the next, at your own height: any wall of the map in between,
+-- at that height, is not really there; forget it, and remember that for next time
+WALL_LEARN = nil
+function learn_walls_tick()
+	local x, y, z = player_pos()
+	local prev = WALL_LEARN
+	WALL_LEARN = nil
+	if not x then return end
+	local n = nav_ready()
+	if not n or in_battle() or fading() or frame - last_dialogue_frame < 30 then return end
+	local key = n.name .. "|" .. u16(MAPID)
+	WALL_LEARN = { x = x, y = y, z = z, key = key }
+	if not prev or prev.key ~= key then return end
+	local mx, mz = x - prev.x, z - prev.z
+	local m2 = mx * mx + mz * mz
+	if m2 < 0.0004 or m2 > 0.36 or math.abs(y - prev.y) > 0.25 then return end
+	-- (not on or right by a ladder: climbing goes up the face of the wall it hangs on)
+	if on_ladder(x, y, z) then return end
+	for _, L in ipairs(ladder_list()) do
+		if (L.x - x) ^ 2 + (L.z - z) ^ 2 < 2.5 then return end
+	end
+	local function side(ax, az, bx, bz, cx, cz) return (bx - ax) * (cz - az) - (bz - az) * (cx - ax) end
+	local gone = {}
+	for _, k in ipairs({ math.floor(x / NB) * 100000 + math.floor(z / NB), math.floor(prev.x / NB) * 100000 + math.floor(prev.z / NB) }) do
+		for _, w in ipairs(n.wb[k] or {}) do
+			if not gone[w] and wall_in_band(w, math.min(y, prev.y), x, z)
+				and side(prev.x, prev.z, x, z, w[1], w[2]) * side(prev.x, prev.z, x, z, w[3], w[4]) < 0
+				and side(w[1], w[2], w[3], w[4], prev.x, prev.z) * side(w[1], w[2], w[3], w[4], x, z) < 0 then
+				gone[w] = true
+			end
+		end
+	end
+	if not next(gone) then return end
+	local f = io.open(WALLS_FILE, "a")
+	for w in pairs(gone) do
+		for k, b in pairs(n.wb) do
+			for i = #b, 1, -1 do if b[i] == w then table.remove(b, i) end end
+		end
+		WALLS_PASS[n.name] = WALLS_PASS[n.name] or {}
+		local t = WALLS_PASS[n.name]
+		t[#t + 1] = { w[1], w[2], w[3], w[4] }
+		if f then f:write(string.format("%s|%.3f|%.3f|%.3f|%.3f\n", n.name, w[1], w[2], w[3], w[4])) end
+		log_line(string.format("walked through a wall of %s: %.2f %.2f to %.2f %.2f", n.name, w[1], w[2], w[3], w[4]))
+	end
+	if f then f:close() end
+	-- (what can be walked to has changed)
+	REACH, REACH_SHUT = nil, nil
+	LADDER_OK_CACHE = {}
+	if REACH_BIG then REACH_BIG.n, REACH_BIG.R, REACH_BIG.co = nil, nil, nil end
 end
 function nav_ready()
 	local name = nav_name()
@@ -4935,7 +5170,7 @@ end
 
 -- A* over a half-step grid. Runs a little each frame (it is a coroutine) so the game never stalls:
 -- at most about 5 milliseconds of planning per frame.
-PLAN_SLICE = 0.003
+PLAN_SLICE = 0.006
 plan_clock = nil
 function plan_resume(co)
 	plan_clock = os.clock and os.clock() or nil
@@ -5102,11 +5337,13 @@ function wall_span_at(w, x, z)
 	if not lo then return w[5], w[6] end
 	return lo, hi
 end
+-- (a wall that starts a little above your head is not in the way: the Bad Cave's walls along the
+-- ledge above you start just under where the band used to end)
 function wall_in_band(w, h, x, z)
-	if w[5] >= h + 1.4 or w[6] <= h + 0.3 then return false end
+	if w[5] >= h + 1.35 or w[6] <= h + 0.3 then return false end
 	if not x then return true end
 	local lo, hi = wall_span_at(w, x, z)
-	return lo < h + 1.4 and hi > h + 0.3
+	return lo < h + 1.35 and hi > h + 0.3
 end
 function clear_at3(n, x, z, h, clear)
 	local k = math.floor(x / NB) * 100000 + math.floor(z / NB)
@@ -5123,6 +5360,33 @@ function clear_at3(n, x, z, h, clear)
 		if seg_dist2(x, z, w[1], w[2], w[3], w[4]) < c2 and wall_in_band(w, h, x, z) then return false end
 	end
 	return true
+end
+-- Which way you go in at a door, as the way out toward you: the game's walls round a door are
+-- the sides of a short passage in through it (Marion's door: two walls two steps long, straight
+-- back from it), so the long walls starting within a step of the door, averaged as lines.
+function door_wall_normal(n, x, z, h, px, pz)
+	if not n or not h then return nil end
+	local c, s, seen = 0, 0, {}
+	for i = -1, 1 do for j = -1, 1 do
+		local b = n.wb[(math.floor(x / NB) + i) * 100000 + math.floor(z / NB) + j]
+		for _, w in ipairs(b or {}) do
+			if not seen[w] then
+				seen[w] = true
+				local ax, az = w[3] - w[1], w[4] - w[2]
+				local l = math.sqrt(ax * ax + az * az)
+				local near = math.min((w[1] - x) ^ 2 + (w[2] - z) ^ 2, (w[3] - x) ^ 2 + (w[4] - z) ^ 2)
+				if l > 1.2 and l < 4 and near < 1.0 and wall_in_band(w, h, x, z) then
+					local a = (math.atan2 or math.atan)(az, ax)
+					c, s = c + l * math.cos(2 * a), s + l * math.sin(2 * a)
+				end
+			end
+		end
+	end end
+	if c * c + s * s < 1 then return nil end
+	local a = (math.atan2 or math.atan)(s, c) / 2
+	local nx, nz = math.cos(a), math.sin(a)
+	if (px - x) * nx + (pz - z) * nz < 0 then nx, nz = -nx, -nz end
+	return nx, nz
 end
 function wall_between3(n, x0, z0, x1, z1, h)
 	for _, k in ipairs({ math.floor(x1 / NB) * 100000 + math.floor(z1 / NB), math.floor(x0 / NB) * 100000 + math.floor(z0 / NB) }) do
@@ -5216,7 +5480,9 @@ function find_path3(n, sx, sy, sz, gx, gz, gy, clear, budget, avoid)
 			for _, h in ipairs(floor_heights(n, x, z)) do
 				-- (at the very top of a ladder, or with no floor under you at all: the ledge's own
 				-- edge counts as a wall between you and it, so do not look for walls)
-				if math.abs(h - sh) < 0.7 and clear_at3(n, x, z, h, clear) and (no_floor or not wall_between3(n, sx, sz, x, z, math.max(h, sh))) then
+				-- (and only spots you can get to in a straight line: not one past a person beside you)
+				if math.abs(h - sh) < 0.7 and clear_at3(n, x, z, h, clear) and (no_floor or not wall_between3(n, sx, sz, x, z, math.max(h, sh)))
+					and not in_avoid(avoid, x, z, h, 0.6) and (no_floor or line_ok3(n, sx, sz, sh, x, z, 0.2, avoid, h)) then
 					local k = key(si + di, sj + dj, h)
 					local gc = math.sqrt(di * di + dj * dj)
 					if gc < (g[k] or 1e18) then
@@ -5286,6 +5552,17 @@ function find_path3(n, sx, sy, sz, gx, gz, gy, clear, budget, avoid)
 		while b > a + 1 and not line_ok3(n, pts[a][1], pts[a][2], pts[a][3], pts[b][1], pts[b][2], clear * 0.8, avoid, pts[b][3]) do b = b - 1 end
 		out[#out + 1] = pts[b]
 		a = b
+	end
+	-- The route starts from the middle of a square near you, not where you stand: when the
+	-- straight line from you to its first turn is blocked (you are tucked in beside the end of
+	-- a ramp's wall, Bloomingdale's steps up to Marion's gate), go to that square first.
+	if out[1] and #pts >= 2 and sh then
+		local fx, fz = out[1][1], out[1][2]
+		if not line_ok3(n, sx, sz, sh, fx, fz, math.min(clear, 0.3) * 0.8, avoid, out[1][3]) then
+			local first = pts[1]
+			if (first[1] - sx) ^ 2 + (first[2] - sz) ^ 2 < 0.04 and pts[2] ~= out[1] then first = pts[2] end
+			if first ~= out[1] then table.insert(out, 1, first) end
+		end
 	end
 	return out, best * C
 end
@@ -5380,6 +5657,27 @@ function things_in_way(tx, tz, px, pz)
 		if not mine and not here then
 			out[#out + 1] = { x0 = it.x - 0.4, x1 = it.x + 0.4, z0 = it.z - 0.4, z1 = it.z + 0.4,
 				y0 = it.fy, y1 = it.fy and (it.fy + 1.0), pad = 0.15, thing = true }
+		end
+	end
+	-- and people standing close by: the walls do not show them, and two of them either side of you
+	-- with a ramp's wall in front (Bloomingdale's crowd at the foot of the steps up to Marion's
+	-- gate) leave no way on but back round them (not the one you are going to, nor one you are
+	-- right up against: there has to be a way to step away)
+	local okc, cl = pcall(characters)
+	for _, c in ipairs(okc and cl or {}) do
+		if not c.thing and not c.item and c.x then
+			local dp = (c.x - px) ^ 2 + (c.z - pz) ^ 2
+			local mine = tx and math.abs(c.x - tx) < 0.6 and math.abs(c.z - tz) < 0.6
+			local level = not (c.fy and py) or math.abs(c.fy - py) < 1.5
+			if level and not mine and dp < 225 and dp > 0.16 then
+				-- (a person and you are both about a step wide: keep three quarters of a step
+				-- between your middles, or you brush them and stop)
+				-- (right beside you: a smaller box that leaves you outside it, so you can step away)
+				local hw, pd = 0.45, 0.25
+				if math.abs(c.x - px) < 0.8 and math.abs(c.z - pz) < 0.8 then hw, pd = 0.15, 0.15 end
+				out[#out + 1] = { x0 = c.x - hw, x1 = c.x + hw, z0 = c.z - hw, z1 = c.z + hw,
+					y0 = c.fy, y1 = c.fy and (c.fy + 1.0), pad = pd, person = true }
+			end
 		end
 	end
 	-- and a town's house doors: walking past one too close goes in (on the way to the sailor
@@ -6000,16 +6298,144 @@ function talk_across(n, x, z, y, o)
 	return best
 end
 -- The spot in front of a sign (or statue) that it can be read from, and the way to face.
--- Signs are set up to be read facing the camera: stand on the camera's side of it (below it on
--- screen) and face up.
+-- Signs and other things to read: the boxes the game reads them from (good) and the boxes where
+-- it says you are on the wrong side (bad), per map: { object number, x, z, {good boxes}, {bad boxes} }.
+-- Made from the game's scenario files (each box picks one version of the words).
+SIGN_ZONES = {
+	[100] = { {4,-1.29,3.9,{{-0.82,5.46,-1.72,4.36}},{{-0.58,3.92,-2.18,2.72}}}, {137,-1.29,3.9,{},{{-0.58,3.92,-2.18,2.72}}}, {223,21.93,13.58,{{21.83,14.02,20.63,13.02}},{}} },
+	[210] = { {19,-3.79,0,{{-2.98,1.55,-4.58,0.05}},{}} },
+	[1100] = { {96,14.28,-18.4,{{15.91,-16.26,14.11,-18.15}},{}} },
+	[1200] = { {17,17.61,-15.46,{{18.26,-14.66,17.16,-16.26}},{}} },
+	[1300] = { {31,-6.87,10.68,{{-5.82,11.59,-7.92,9.39}},{}} },
+	[1900] = { {3,25.55,15.8,{{26.47,14.85,24.47,13.75}},{}}, {8,-10.53,4.33,{{-8.29,6.19,-10.89,4.49}},{}}, {14,-18.9,17.44,{{-19.24,17.53,-20.44,15.83},{-17.7,19.1,-19.2,17.7}},{}} },
+	[1906] = { {41,-2,-4.96,{{-1,-3.57,-2.9,-4.57}},{}}, {42,1.89,-4.96,{{2.95,-3.64,1.05,-4.64}},{}}, {43,-0.04,2.22,{{0.64,3.53,-0.66,0.53}},{}} },
+	[2100] = { {100,20.85,-12.26,{{22.11,-8.36,19.81,-10.06},{22.85,-10.15,19.05,-11.74},{22.85,-11.74,19.05,-13.34}},{}}, {100,20.9,-10.57,{{22.11,-8.36,19.81,-10.06},{22.85,-10.15,19.05,-11.74},{22.85,-11.74,19.05,-13.34}},{}}, {108,3.05,19.93,{{4.04,22.37,2.05,20.28}},{{3.74,19.84,2.14,18.54}}} },
+	[2200] = { {7,5.98,16.2,{{5.72,17.23,4.32,15.93}},{{7.12,16.28,5.72,14.98}}}, {8,-10.47,-4.2,{{-9.79,-1.87,-11.79,-3.87}},{}}, {32,-19.82,15.35,{{-18.35,17.01,-20.05,15.51}},{{-19.24,15.45,-20.94,13.95}}} },
+	[2205] = { {28,6.2,-6.6,{{6.49,-5.28,4.79,-6.68}},{}} },
+	[2309] = { {21,-5.16,-0.53,{{-4.61,0.36,-5.61,-0.64}},{}}, {22,5.16,-0.53,{{5.59,0.36,4.59,-0.64}},{}} },
+	[4301] = { {200,-11.16,-6.24,{{-9.86,-4.8,-12.46,-6.89}},{}}, {201,9.86,-6.25,{{11.36,-4.75,8.37,-7.75}},{}} },
+	[4302] = { {202,-27.96,-74.18,{{-26.31,-72.49,-29.6,-76.28}},{}} },
+	[4306] = { {1,0,0.9,{{0.78,2.08,-0.82,1.08}},{}}, {2,1.6,-1.1,{{2.48,-0.22,0.88,-1.22}},{}}, {3,-1.6,-1.1,{{-0.92,-0.22,-2.52,-1.22}},{}} },
+	[4505] = { {147,-19.16,11.32,{{-17.61,12.98,-19.51,10.98}},{}} },
+	[5101] = { {102,-2.72,-23.05,{{-1.73,-21.33,-3.53,-22.93}},{{-2.08,-23.11,-3.68,-24.81}}} },
+	[5500] = { {52,4.67,7.03,{{5.15,8.54,3.85,7.14}},{{5.15,6.54,3.85,5.14}}} },
+	[5800] = { {205,10.11,0.67,{{10.66,1.47,9.16,0.47}},{{10.86,0.07,9.36,-0.93}}} },
+	[6500] = { {1,-0.4,-4.25,{{0.74,-2.83,-0.66,-4.23}},{{-0.28,-4.17,-1.68,-5.57}}} },
+	[7101] = { {202,0,-13.64,{{1.02,-11.27,-1.07,-13.27},{4.82,-11.37,2.23,-13.57}},{}}, {202,3.47,-13.67,{{1.02,-11.27,-1.07,-13.27},{4.82,-11.37,2.23,-13.57}},{}} },
+	[7301] = { {103,16.35,-9.03,{{17.42,-7.96,15.23,-10.26}},{}} },
+	[7402] = { {103,0,0,{{0.57,1.53,-0.63,0.13}},{}} },
+	[7403] = { {106,0,-1.3,{{0.97,-0.01,-1.13,-1.91}},{}} },
+	[7900] = { {44,-3.26,7.13,{{-1.95,8.99,-3.75,7.09}},{{-2.65,6.7,-4.24,5.4}}}, {45,6.09,-12.69,{{6.83,-11.18,5.33,-12.57}},{}}, {46,-0.18,-12.71,{{0.67,-10.81,-1.03,-12.61}},{}} },
+	[7901] = { {47,12.29,6.45,{{13.12,8.2,11.32,6.7}},{}}, {48,29.82,-1.52,{{30.67,0.28,28.97,-1.32}},{}}, {50,-10.52,-13.19,{{-9.63,-11.32,-11.43,-12.82}},{{-10.11,-13.24,-11.61,-14.54}}} },
+	[7902] = { {53,14.46,10.06,{{15.32,12.05,13.32,10.25}},{{15.12,9.93,13.42,8.63}}}, {54,18.71,1.25,{{19.86,3.42,17.86,1.62}},{}}, {55,24.46,-12.75,{{25.43,-10.49,23.43,-12.29}},{}}, {56,18.55,-14.99,{{18.54,-12.64,16.55,-14.44}},{{19.53,-14.92,17.83,-16.22}}}, {57,12.9,-22.2,{{14.23,-19.55,12.23,-21.35}},{}}, {58,10.34,-14.97,{{11.41,-12.62,9.41,-14.42}},{{10.93,-15.05,9.24,-16.35}}} },
+	[8201] = { {100,4.61,7.31,{{5.36,8.2,4.36,7.2}},{}}, {101,-11.24,11.78,{{-10.64,13.26,-12.03,11.66}},{}}, {104,-10.96,-0.04,{{-10.46,1.26,-11.46,0.26}},{}} },
+	[8400] = { {1,0.03,9.36,{{0.68,10.72,-0.62,9.62}},{{0.61,9.32,-0.69,8.22}}} },
+	[8407] = { {25,-0.01,-4.38,{{0.94,-2.61,-0.96,-4.11}},{}} },
+	[9003] = { {101,0,-10.58,{{1.92,-8.48,-2.08,-12.37}},{}} },
+	[9007] = { {106,0.1,-6.92,{{0.93,-5.74,-1.06,-8.04}},{}} },
+	[20001] = { {201,8.02,-6.49,{{8.86,-4.22,7.06,-6.22}},{{8.89,-6.82,7.09,-8.82}}} },
+	[20002] = { {1,-74.47,-69.82,{{-73.55,-67.58,-75.25,-69.48}},{{-73.65,-69.98,-75.35,-71.88}}}, {2,-95.89,-38.33,{{-95.04,-36.33,-96.74,-37.93}},{{-95.26,-38.38,-96.96,-39.88}}} },
+	[20003] = { {5,3.67,-42.78,{{4.42,-40.93,2.92,-42.43},{4.42,-42.93,2.92,-44.43}},{}} },
+	[20004] = { {18,35.06,24.75,{{35.91,26.91,34.11,25.01}},{{35.88,24.59,34.18,23.09}}} },
+	[20010] = { {6,21.58,-17.31,{{22.37,-15.44,20.67,-17.14}},{{22.58,-17.55,20.58,-19.35}}} },
+	[20011] = { {7,-1.51,-1.52,{{-0.61,0.67,-2.41,-1.12}},{{-0.61,-1.82,-2.41,-3.62}}} },
+	[20012] = { {8,-2.93,33.58,{{-2.03,35.77,-3.83,33.98}},{{-2.03,33.38,-3.83,31.58}}} },
+	[20015] = { {9,-25.28,9.58,{{-24.57,9.52,-26.07,8.12}},{}}, {102,-25.28,9.58,{{-24.62,11.36,-26.12,9.96}},{}} },
+	[20016] = { {10,33.58,-33.56,{{34.46,-31.61,32.56,-33.31}},{{34.44,-33.86,32.84,-35.26}}} },
+	[20020] = { {11,49.3,2.08,{{50.34,3.75,48.14,1.75}},{}} },
+	[20023] = { {12,55.5,-33.99,{{56.35,-31.94,54.65,-33.64}},{{56.31,-34.24,54.61,-35.93}}} },
+	[20024] = { {13,15.32,-2.25,{{16.26,-0.35,14.37,-2.15}},{{16.29,-2.45,14.39,-4.24}}} },
+	[20027] = { {14,-93.52,-6.24,{{-92.72,-4.05,-94.52,-5.85}},{{-92.59,-6.44,-94.39,-8.24}}} },
+	[20039] = { {16,29.08,6.63,{{29.98,9.07,28.18,6.98}},{{29.98,6.28,28.18,4.18}}} },
+	[20061] = { {15,12.88,-32.58,{{13.83,-30.23,11.93,-32.13},{13.83,-32.73,11.93,-34.63}},{}} },
+	[20063] = { {3,42.05,61.99,{{42.95,64.18,41.15,62.38}},{{42.94,61.89,41.14,60.09}}}, {4,-24.79,8.01,{{-23.89,9.91,-25.69,8.11}},{{-23.99,7.95,-25.69,6.55}}} },
+}
+-- this sign's entry in SIGN_ZONES: by its object number (its spot can move with the story),
+-- else whatever stands right there (two objects can share a spot, one of them never readable)
+function sign_entry(it)
+	local list = SIGN_ZONES and SIGN_ZONES[u16(MAPID)]
+	if not list or not it.obj or not inram(it.obj, 0x30) then return nil end
+	local r = u32(it.obj + 0x0C)
+	local id = inram(r, 1) and u8(r) or -1
+	local best, bd = nil, 2.5 ^ 2
+	for _, e in ipairs(list) do
+		local d = (e[2] - it.x) ^ 2 + (e[3] - it.z) ^ 2
+		if e[1] == id and d < bd then best, bd = e, d end
+	end
+	if not best or #best[4] == 0 then
+		for _, e in ipairs(list) do
+			local d = (e[2] - it.x) ^ 2 + (e[3] - it.z) ^ 2
+			if d < 0.3 ^ 2 and #e[4] > 0 then return e end
+		end
+	end
+	return best
+end
+function sign_in_box(b, x, z, m)
+	m = m or 0
+	return x >= math.min(b[1], b[3]) - m and x <= math.max(b[1], b[3]) + m and z >= math.min(b[2], b[4]) - m and z <= math.max(b[2], b[4]) + m
+end
+function in_sign_box(list, x, z, m)
+	for _, b in ipairs(list or {}) do if sign_in_box(b, x, z, m) then return true end end
+	return false
+end
+-- The game reads a sign only from the box it marks for that (anywhere else it says you are
+-- standing on the wrong side of it): pick a clear spot well inside that box, about a step from
+-- the sign. Without the game's box, signs are set up to be read facing the camera: stand on the
+-- camera's side of it (below it on screen) and face up, unless that is where the game says the
+-- wrong side is.
 function sign_front(n, it)
-	if not it.rot or not it.thing or it.item then return nil end
+	if not it.thing or it.item then return nil end
+	local e = sign_entry(it)
+	local ppx, ppy, ppz = player_pos()
+	local h0 = it.fy or ppy or 0
+	if e and #e[4] > 0 then
+		for pass = 1, 2 do
+			local best = nil
+			for _, b in ipairs(e[4]) do
+				local x0, x1 = math.min(b[1], b[3]), math.max(b[1], b[3])
+				local z0, z1 = math.min(b[2], b[4]), math.max(b[2], b[4])
+				local ax0, ax1, az0, az1 = x0 + 0.15, x1 - 0.15, z0 + 0.15, z1 - 0.15
+				if ax0 > ax1 then ax0, ax1 = (x0 + x1) / 2, (x0 + x1) / 2 end
+				if az0 > az1 then az0, az1 = (z0 + z1) / 2, (z0 + z1) / 2 end
+				local nx, nz = math.floor((ax1 - ax0) / 0.2 + 0.5), math.floor((az1 - az0) / 0.2 + 0.5)
+				-- (straight out from the sign toward the middle of the box is best)
+				local cx, cz = (x0 + x1) / 2 - it.x, (z0 + z1) / 2 - it.z
+				local cl = math.sqrt(cx * cx + cz * cz)
+				if cl > 0.01 then cx, cz = cx / cl, cz / cl else cx, cz = 0, 0 end
+				for i = 0, nx do
+					for j = 0, nz do
+						local x = nx > 0 and (ax0 + (ax1 - ax0) * i / nx) or ax0
+						local z = nz > 0 and (az0 + (az1 - az0) * j / nz) or az0
+						local dd = math.sqrt((x - it.x) ^ 2 + (z - it.z) ^ 2)
+						if dd >= 0.45 then
+							local h = n and floor_near(n, x, z, h0, 1.5)
+							local ok = not n or (h and clear_at3(n, x, z, h, 0.25) and (pass == 2 or not wall_between3(n, x, z, it.x, it.z, h)))
+							if ok then
+								local edge = math.min(x - x0, x1 - x, z - z0, z1 - z)
+								local lat = math.abs((x - it.x) * cz - (z - it.z) * cx)
+								local score = math.abs(dd - 0.9) - math.min(edge, 0.3) * 0.5 + 0.6 * lat
+								if ppx then score = score + 0.03 * math.sqrt((x - ppx) ^ 2 + (z - ppz) ^ 2) end
+								if not best or score < best.score then best = { x = x, z = z, score = score, box = b, zoned = true } end
+							end
+						end
+					end
+				end
+			end
+			if best then return best end
+		end
+		local b = e[4][1]
+		return { x = (b[1] + b[3]) / 2, z = (b[2] + b[4]) / 2, box = b, zoned = true }
+	end
+	if not it.rot then return nil end
+	local bad = e and e[5]
 	local ux, uz = screen_axes_g()
-	local fx, fz = -ux, -uz
-	local _, py = player_pos()
-	for _, d in ipairs({ 1.1, 1.4, 0.8, 1.8 }) do
-		local x, z = it.x + fx * d, it.z + fz * d
-		if not n or clear_at3(n, x, z, py or 0, 0.3) then return { x = x, z = z } end
+	for _, sg in ipairs({ 1, -1 }) do
+		local fx, fz = -ux * sg, -uz * sg
+		for _, d in ipairs({ 1.1, 1.4, 0.8, 1.8 }) do
+			local x, z = it.x + fx * d, it.z + fz * d
+			if (not n or clear_at3(n, x, z, ppy or 0, 0.3)) and not in_sign_box(bad, x, z, 0.2) then return { x = x, z = z } end
+		end
+		if not bad or #bad == 0 then break end
 	end
 	return nil
 end
@@ -6026,7 +6452,17 @@ local function start_walk()
 		if okl and lw then if BEACON then BEACON = nil end return end
 		if not okl then log_line("ladder_walk: " .. tostring(lw)) end
 	end
-	if it.unreachable then say(unreachable_msg(it), true) return end
+	-- out of reach by the map of walls, but at your own height and not far: the map can be wrong
+	-- (the Bad Cave's floor 1: walls round the foot of the kidnappers' ladder that you walk
+	-- straight through on the way to the hole), so head straight for it, feeling the way
+	local straight = nil
+	if it.unreachable then
+		local _, py0 = player_pos()
+		local ty = it.y0 or it.fy or gimmick_y_at(it.x, it.z)
+		local far = math.sqrt((it.x - px) ^ 2 + (it.z - pz) ^ 2)
+		if py0 and ty and math.abs(ty - py0) < 1.5 and far < 40 and not it.locked then straight = true
+		else say(unreachable_msg(it), true) return end
+	end
 	if BEACON then BEACON = nil end      -- an auto walk takes over from the beacon
 	-- a door the story keeps locked for now: no use walking into it (one with a keyhole: you
 	-- may have the key, so go)
@@ -6041,6 +6477,10 @@ local function start_walk()
 	         monster = it.monster or nil, boss = it.boss or nil, origin_map = u16(MAPID),
 	         doorlike = (it.kind == 1 and not it.nx) or nil, item = it }
 	walk_resume = nil
+	if straight then
+		walk.nopath, walk.max_flips = true, 1
+		walk.try_note = "The map shows no way there from here, so heading straight for it. "
+	end
 	if it.nx then
 		-- a door: its thin side faces the way in. Start from the side you are on.
 		-- (a door in front of its exit box is always entered from the door's own side)
@@ -6069,9 +6509,37 @@ local function start_walk()
 		walk.x, walk.z = it.x + walk.door.nx * out, it.z + walk.door.nz * out
 		walk.stage = "front"
 	end
+	-- a well: there is no walking into it, A at its rim climbs down. Stand beside it, facing it.
+	if it.kind == 1 and it.label and it.label:lower():match("^well") then
+		local n = nav_ready()
+		local _, py = player_pos()
+		local best, bd = nil, 1e9
+		for k = 0, 7 do
+			local a = k * math.pi / 4
+			local x, z = it.x + math.cos(a) * 1.25, it.z + math.sin(a) * 1.25
+			local h = n and floor_near(n, x, z, it.fy or py or 0, 1.0)
+			if h and clear_at3(n, x, z, h, 0.25) then
+				local dd = math.sqrt((x - px) ^ 2 + (z - pz) ^ 2)
+				if wall_between3(n, px, pz, x, z, h) then dd = dd + 3 end
+				if dd < bd then best, bd = { x = x, z = z }, dd end
+			end
+		end
+		if best then
+			walk.door, walk.stage, walk.doorlike, walk.exit = nil, nil, nil, nil
+			walk.x, walk.z, walk.face, walk.square = best.x, best.z, { it.x, it.z }, true
+			walk.face_msg = "At the well. Press A to climb down."
+			say((walk.try_note or "") .. "Walking to the well. Press any button to stop.", true)
+			return
+		end
+	end
 	-- something worked from a spot the game marks (the Starflight Express's control panel: A
 	-- does nothing from a step further back): stand in that spot, nearest the thing, and face it
-	if it.obj and it.thing and not it.monster then
+	-- (not a sign: its marked spot is only where the game notices you, and from the back of it
+	-- you are "standing on the wrong side": the Bad Cave's sign by the bridge, marked on its cave
+	-- side. Signs are read from the camera's side, below.)
+	local se = it.thing and not it.item and sign_entry(it)
+	local is_sign = (se and #se[4] > 0) or (it.label and it.label:find("^sign") and it.rot and sign_front(nav_ready(), it))
+	if it.obj and it.thing and not it.monster and not is_sign then
 		local ok, x0, z0, x1, z1 = pcall(zone_from_table, it.obj)
 		if ok and x0 then
 			local lo_x, hi_x = math.min(x0, x1) + 0.25, math.max(x0, x1) - 0.25
@@ -6093,18 +6561,25 @@ local function start_walk()
 			walk.x, walk.z, walk.obj, walk.face = sx, sz, nil, { it.x, it.z }
 			local lb = it.label:gsub("%.+$", "")
 			walk.face_msg = "In front of " .. lb .. ". Press A."
-			say("Walking to the front of " .. lb .. ". Press any button to stop.", true)
+			say((walk.try_note or "") .. "Walking to the front of " .. lb .. ". Press any button to stop.", true)
 			return
 		end
 	end
 	-- a sign: go to the side it can be read from and face it
-	if it.rot and it.thing and not it.item then
+	if it.thing and not it.item and (it.rot or is_sign) then
 		local fr = sign_front(nav_ready(), it)
 		if fr then
 			walk.x, walk.z, walk.obj, walk.face = fr.x, fr.z, nil, { it.x, it.z }
+			walk.front_side = { it.x, it.z, fr.x - it.x, fr.z - it.z }
+			-- (the game's own box to read it from: arrive inside it, and face the sign straight on,
+			-- slanted if it stands at a slant)
+			walk.sign_box, walk.face8 = fr.box, fr.zoned
+			-- (settle and turn square to it, as at a chest: arriving on the move, the turn to face it
+			-- was lost and you stood with your back to it)
+			walk.square = true
 			local lb = it.label:gsub("%.+$", "")
 			walk.face_msg = "In front of " .. lb .. ". Press A to read it."
-			say("Walking to the front of " .. lb .. ". Press any button to stop.", true)
+			say((walk.try_note or "") .. "Walking to the front of " .. lb .. ". Press any button to stop.", true)
 			return
 		end
 	end
@@ -6137,7 +6612,7 @@ local function start_walk()
 		local ap = n and counter_approach(n, it.x, it.z, it.y0 or py or 0, it.obj)
 		if ap then
 			walk.x, walk.z, walk.obj, walk.face = ap.x, ap.z, nil, { it.x, it.z }
-			say("Walking to " .. it.label .. ", across the counter. Press any button to stop.", true)
+			say((walk.try_note or "") .. "Walking to " .. it.label .. ", across the counter. Press any button to stop.", true)
 			return
 		end
 		-- hemmed in by other people (Marion at her table, between her two guests): from a free
@@ -6146,11 +6621,11 @@ local function start_walk()
 		if sp then
 			walk.x, walk.z, walk.obj, walk.face, walk.square = sp.x, sp.z, nil, { it.x, it.z }, true
 			walk.face_msg = "In front of " .. it.label .. ". Press A to talk."
-			say("Walking to " .. it.label .. ". Press any button to stop.", true)
+			say((walk.try_note or "") .. "Walking to " .. it.label .. ". Press any button to stop.", true)
 			return
 		end
 	end
-	say("Walking to " .. it.label .. ". Press any button to stop.", true)
+	say((walk.try_note or "") .. "Walking to " .. it.label .. ". Press any button to stop.", true)
 end
 -- Ladders on the way. Picking a ladder end walks onto it and climbs to the other end. Picking
 -- something at another height (a door down on Dourbridge's riverside walkway) that the map of
@@ -6252,7 +6727,14 @@ function ladder_walk(it)
 		local other_y = (math.abs((it.fy or 0) - L.top) < 0.3) and L.bot or L.top
 		local nv = nav_ready()
 		local Rp = (not mid and nv) and reach_around(nv, px, py, pz) or nil
-		if Rp and reach_near3(Rp, nv, L.x, L.z, other_y) ~= true then
+		-- (you can walk to the end you picked: just climb this ladder, from there to its other end)
+		local picked_ok = false
+		if Rp then
+			for _, o in ipairs({ { 0, 0 }, { 0.8, 0 }, { -0.8, 0 }, { 0, 0.8 }, { 0, -0.8 }, { 1.2, 0 }, { -1.2, 0 }, { 0, 1.2 }, { 0, -1.2 } }) do
+				if reach_near3(Rp, nv, L.x + o[1], L.z + o[2], it.fy or py) == true then picked_ok = true break end
+			end
+		end
+		if Rp and not picked_ok and reach_near3(Rp, nv, L.x, L.z, other_y) ~= true then
 			-- (a run of ladders up to the end you picked; the last one can be this ladder itself)
 			local okc, l1, u1 = pcall(ladder_chain, ladders, { x = L.x, z = L.z, last_ladder = it.last_ladder }, it.fy or other_y, px, py, pz, nil)
 			if not okc then log_line("ladder_chain: " .. tostring(l1)) end
@@ -6286,10 +6768,12 @@ function ladder_walk(it)
 			for _, q in ipairs(path) do len = len + math.sqrt((q[1] - lx) ^ 2 + (q[2] - lz) ^ 2) lx, lz = q[1], q[2] end
 			return len
 		end
-		local walk_len = nil
+		local walk_len, no_path = nil, nil
 		if not mid and not it.unreachable then
 			walk_len = path_len(px, py, pz, it.x, it.z, ty)
-			if not walk_len then return nil end
+			-- (no way there on foot, though it was not marked out of reach (just arrived, or a big
+			-- field still being worked out): try the ladders)
+			if not walk_len then no_path = true end
 		end
 		local best = 1e9
 		for _, l in ipairs(ladders) do
@@ -6307,7 +6791,7 @@ function ladder_walk(it)
 		local chain_up = nil
 		-- (out of reach as things are: go by what can really be walked to from each ladder's far
 		-- end; the heights alone can pick a ladder up to the wrong ledge)
-		if it.unreachable or mid then
+		if it.unreachable or mid or no_path then
 			L = nil
 			-- no one ladder joins the two: look for a run of them (Heights of Loneliness: a vine up
 			-- to a ledge, along it, then the next vine), and take the first
@@ -6526,7 +7010,37 @@ local function walk_step(host_pressed)
 	end
 	if walk.obj then                                                     -- people move: follow them
 		local x, z = s32(walk.obj + walk.posoff) / 4096, s32(walk.obj + walk.posoff + 8) / 4096
-		if math.abs(x) < 2000 and math.abs(z) < 2000 then walk.x, walk.z = x, z end
+		if math.abs(x) < 2000 and math.abs(z) < 2000 then
+			walk.x, walk.z = x, z
+			-- a monster that runs (metal slimes, metal medleys): head for where it is going, not
+			-- where it is, from how it has moved over the last few frames, so you cut it off
+			-- instead of trailing behind it
+			if walk.monster then
+				local h = walk.mhist or {}
+				walk.mhist = h
+				h[#h + 1] = { frame, x, z }
+				while #h > 10 do table.remove(h, 1) end
+				local a, b = h[1], h[#h]
+				local dt = b[1] - a[1]
+				if dt >= 5 then
+					local vx, vz = (b[2] - a[2]) / dt, (b[3] - a[3]) / dt
+					local sp = math.sqrt(vx * vx + vz * vz)
+					local md = math.sqrt((x - px) ^ 2 + (z - pz) ^ 2)
+					if sp > 0.01 and md > 0.8 then
+						-- (you cover about a tenth of a step a frame)
+						local t = math.min(md / 0.1, 40)
+						local ax, az = x + vx * t, z + vz * t
+						local nvm = nav_for()
+						if not nvm or line_ok(nvm, x, z, ax, az, 0.3) then walk.x, walk.z = ax, az
+						else
+							-- (it is running at a wall: aim half as far ahead)
+							ax, az = x + vx * t / 2, z + vz * t / 2
+							if line_ok(nvm, x, z, ax, az, 0.3) then walk.x, walk.z = ax, az end
+						end
+					end
+				end
+			end
+		end
 	end
 	if frame - walk.start > 60 * 240 then stop_walk("Could not get there.") return end
 	local dx, dz = walk.x - px, walk.z - pz
@@ -6559,12 +7073,28 @@ local function walk_step(host_pressed)
 	-- not give a way through for): walk on through it, the way you came at it
 	if walk.doorlike and not walk.door and d < 1.0 and d > 0.05 then
 		local nx, nz = (px - walk.x) / d, (pz - walk.z) / d
+		-- (better, square on to the wall the door is in: come at a door in a slanting row of
+		-- houses from along the row, Bloomingdale's terrace, and the way you came runs into the
+		-- house front beside the door)
+		local wnx, wnz = door_wall_normal(nav_for(), walk.x, walk.z, select(2, player_pos()), px, pz)
+		if wnx and ((px - walk.x) * wnx + (pz - walk.z) * wnz) < 0.6 * d then
+			-- off to one side of it: step round to the front first, then in
+			walk.door = { x = walk.x, z = walk.z, nx = wnx, nz = wnz, flipped = true }
+			walk.stage, walk.x, walk.z = "front", walk.x + wnx * 0.9, walk.z + wnz * 0.9
+			walk.best, walk.progress, walk.tries, walk.push, walk.follow, walk.stall, walk.path, walk.co = 1e9, frame, 0, 0, nil, 0, nil, nil
+			return
+		end
+		if wnx then nx, nz = wnx, wnz end
 		walk.door = { x = walk.x, z = walk.z, nx = nx, nz = nz, flipped = true }
 		walk.stage, walk.x, walk.z = "in", walk.x - nx * 1.2, walk.z - nz * 1.2
 		walk.best, walk.progress, walk.tries, walk.push, walk.follow, walk.stall, walk.path, walk.co = 1e9, frame, 0, 0, nil, 0, nil, nil
 		return
 	end
 	if walk.stage == "in" and walk.doorlike and d < 0.4 then
+		-- (a door into another place, a house: the game is about to take you there and say
+		-- where you are; what is round here now is not what is in there)
+		local it = walk.item
+		if it and it.id and it.id ~= 0 and it.id ~= u16(MAPID) then stop_walk() return end
 		local msg = "Through " .. walk.label .. "."
 		local ok, here = pcall(through_summary, walk.item, px, pz, walk.sx, walk.sz)
 		if ok and here then msg = msg .. " " .. here end
@@ -6612,7 +7142,10 @@ local function walk_step(host_pressed)
 		or (walk.boss and walk.obj and d < 5 and walk.fbest and frame - walk.fprog > 45)
 		-- (nearly at the spot in front of someone and no closer for a second: a follower or a
 		-- bit of furniture is in the way, and A reaches from here)
-		or (walk.face and d < 1.1 and walk.fbest and frame - walk.fprog > 60)) then
+		-- (but a sign only reads from its front: not stuck against its back)
+		or (walk.face and d < 1.1 and walk.fbest and frame - walk.fprog > 60
+			and (not walk.front_side or (px - walk.front_side[1]) * walk.front_side[3] + (pz - walk.front_side[2]) * walk.front_side[4] > 0.2)
+			and (not walk.sign_box or in_sign_box({ walk.sign_box }, px, pz, -0.05)))) then
 		-- (across a counter, the talk only reaches straight across: get right in front of them)
 		-- next to someone: turn to them, so A talks to them
 		if walk.obj and not walk.face then walk.face = { walk.x, walk.z } walk.face_msg = "Arrived at " .. walk.label .. "." end
@@ -6624,7 +7157,7 @@ local function walk_step(host_pressed)
 			if math.abs(px - st.x) + math.abs(pz - st.z) > 0.02 then st.x, st.z, st.still = px, pz, frame end
 			if frame - st.still < 12 and frame - st.at < 75 then return end
 			walk.settle = nil
-			if d > 0.45 and (walk.resettle or 0) < 3 then
+			if (d > 0.45 or (walk.sign_box and not in_sign_box({ walk.sign_box }, px, pz, -0.05))) and (walk.resettle or 0) < 3 then
 				walk.resettle = (walk.resettle or 0) + 1
 				walk.path, walk.co = nil, nil
 				walk.fbest, walk.fprog = nil, nil
@@ -6636,10 +7169,28 @@ local function walk_step(host_pressed)
 		if walk.face then
 			-- turn to face them across the counter
 			walk.face_end = walk.face_end or frame + 10
-			if frame < walk.face_end then
-				local fx, fz = walk.face[1] - px, walk.face[2] - pz
-				-- (a chest: straight at it, not on a slant)
-				local fd = walk.square and cardinal_dir(fx, fz) or dir_toward(fx, fz)
+			local fx, fz = walk.face[1] - px, walk.face[2] - pz
+			-- (a chest or sign: straight at it, not on a slant)
+			local fd = (walk.square and not walk.face8) and cardinal_dir(fx, fz) or dir_toward(fx, fz)
+			-- keep turning until you really face it (the game runs a moment behind the pad: a
+			-- last step's direction could leave you with your back to a sign), up to a second
+			local facing = true
+			do
+				local pp = u32(PLAYER_PTR)
+				if inram(pp, 0x60) then
+					local r = u16(pp + 0x54) / 4096
+					local wx, wz = fx, fz
+					if walk.square and not walk.face8 then
+						local ux, uz, rx, rz = screen_axes()
+						local f, rr = fx * ux + fz * uz, fx * rx + fz * rz
+						if math.abs(f) >= math.abs(rr) then wx, wz = (f >= 0 and ux or -ux), (f >= 0 and uz or -uz)
+						else wx, wz = (rr >= 0 and rx or -rx), (rr >= 0 and rz or -rz) end
+					end
+					local wl = math.sqrt(wx * wx + wz * wz)
+					if wl > 0.01 then facing = (math.sin(r) * wx + math.cos(r) * wz) / wl > 0.9 end
+				end
+			end
+			if frame < walk.face_end or (not facing and frame < walk.face_end + 50) then
 				pcall(function() joypad.set(DIRS[fd + 1]) end)
 				return
 			end
@@ -6668,7 +7219,8 @@ local function walk_step(host_pressed)
 			if (not walk.gy or not py0 or math.abs(walk.gy - 1 - py0) < 1.0) and line_ok(nv, px, pz, walk.x, walk.z, 0.3, walk.things or nil) then
 				if not walk.direct then walk.direct, walk.dbest, walk.dprog = true, d, frame end
 				if d < walk.dbest - 0.2 then walk.dbest, walk.dprog = d, frame end
-				if frame - walk.dprog < 45 then
+				-- (a monster running away: keep after it straight, it is no nearer for a while)
+				if frame - walk.dprog < 45 or walk.monster then
 					if walk.obj then walk.co, walk.path = nil, nil end
 					pcall(function() joypad.set(DIRS[dir_toward(dx, dz) + 1]) end)
 					return
@@ -6741,7 +7293,21 @@ local function walk_step(host_pressed)
 				walk.seg0 = { px, pz }
 				walk.checked_from = frame
 			end
-			if not (walk.stale and walk.path) then return end
+			if not (walk.stale and walk.path) then
+				-- while a long route is still being worked out (a second or so in a big town), make a
+				-- start toward the place when the way straight on is open for a few steps, instead of
+				-- standing and waiting; the route then carries on from wherever you have got to
+				if walk.co and not walk.path and coroutine.status(walk.co) ~= "dead" and d > 3 and frame - walk.start > 6
+					and not walk.door and not walk.through then
+					local ux, uz = dx / d, dz / d
+					if walk.things == nil then walk.things = (not walk.obj and not walk.monster) and things_in_way(walk.tx0, walk.tz0, px, pz) or false end
+					local py0 = select(2, player_pos())
+					if py0 and line_ok3(nv, px, pz, py0, px + ux * 1.5, pz + uz * 1.5, 0.35, walk.things or nil) then
+						pcall(function() joypad.set(DIRS[dir_toward(dx, dz) + 1]) end)
+					end
+				end
+				return
+			end
 		end
 		local wp = walk.path[walk.pi]
 		while wp and ((wp[1] - px) ^ 2 + (wp[2] - pz) ^ 2) < 0.25 do
@@ -6886,7 +7452,7 @@ local function walk_step(host_pressed)
 				walk.dir = f.h
 				if frame - f.since > 60 * 20 then
 					walk.flips = (walk.flips or 0) + 1
-					if walk.flips > 3 then stop_walk("Could not find a way there. Try walking part of the way, then press J again.") return end
+					if walk.flips > (walk.max_flips or 3) then stop_walk("Could not find a way there. Try walking part of the way, then press J again.") return end
 					walk.hand = -walk.hand
 					walk.follow = { h = (goal - 2 * walk.hand) % 8, hit = d, since = frame, best = d, good = 0 }
 					walk.dir = walk.follow.h
@@ -7819,6 +8385,9 @@ local function read_layout()
 	-- box the cursor is on tells them apart)
 	local key = line .. "#" .. sel
 	if key == lay_state then lay_pending = nil return end
+	-- (just started or reloaded: a menu's boxes stay in memory after it closes, so the last shop's
+	-- "Buy" would be said out in the street; take what is there as already said)
+	if frame < 40 then lay_state, lay_pending = key, nil return end
 	-- the list fills in over a few frames: wait until it holds still
 	if key ~= lay_pending then lay_pending, lay_since = key, frame return end
 	if frame - lay_since < 4 then return end
@@ -9100,7 +9669,8 @@ end
 --   LT + the top face button (Y): the route to it, step by step (how far to go while the beacon is on)
 Y_NAMES = { "y", "b4" }
 BACK_NAMES = { "back", "select", "view", "b7" }
---   LT + Back (Select / View): the story guide, where to go next
+RT_NAMES = { "righttrigger", "triggerright", "rt", "z-" }
+--   LT + RT (the right trigger): the story guide, where to go next (LT + Back does it too)
 local function handle_pad_combos(k)
 	if not lt_held then
 		if pad_edge(k, L3_NAMES) then say_party(true) end
@@ -9108,7 +9678,7 @@ local function handle_pad_combos(k)
 		return
 	end
 	-- keep the D-pad and that face button away from the game while the trigger is held
-	pcall(function() joypad.set({ Up = false, Down = false, Left = false, Right = false, X = false, Select = false }) end)
+	pcall(function() joypad.set({ Up = false, Down = false, Left = false, Right = false, X = false, Select = false, R = false }) end)
 	if pad_edge(k, DPAD.right) then step_category(1) end
 	if pad_edge(k, DPAD.left) then step_category(-1) end
 	if pad_edge(k, DPAD.down) then step_nearby(1) end
@@ -9121,7 +9691,7 @@ local function handle_pad_combos(k)
 	if pad_edge(k, Y_NAMES) then
 		if BEACON then beacon_status() else route_request() end
 	end
-	if pad_edge(k, BACK_NAMES) then say_guide() end
+	if pad_edge(k, RT_NAMES) or pad_edge(k, BACK_NAMES) then say_guide() end
 end
 
 ------------------------------------------------------------------------------ route ---------
@@ -9146,7 +9716,7 @@ function route_request(beacon)
 		local sgn = ((px - it.x) * it.nx + (pz - it.z) * it.nz) >= 0 and 1 or -1
 		if it.facing then sgn = 1 end
 		gx, gz = it.x + it.nx * sgn * 1.2, it.z + it.nz * sgn * 1.2
-	elseif it.rot and it.thing and not it.item and sign_front(nv, it) then
+	elseif it.thing and not it.item and (it.rot or sign_entry(it)) and sign_front(nv, it) then
 		-- a sign: the route goes to the side it can be read from
 		local fr = sign_front(nv, it)
 		gx, gz, counter_route = fr.x, fr.z, "sign"
@@ -9765,7 +10335,7 @@ HELP = "R repeat. Control stops speech. W where am I. H health. M magic. L next 
 	"Y story guide: where to go next, and what opens the locked doors here. T alerts on or off. C save a debug snapshot. K keys. " ..
 	"On the controller, hold the left trigger: D-pad right and left change category, down and up go through the things in it, " ..
 	"pressing in the left stick walks there, pressing in the right stick starts the 3D beacon to it, to walk there yourself on headphones, again to stop it, " ..
-	"the top face button gives the route to it, step by step, and the Back button gives the story guide. " ..
+	"the top face button gives the route to it, step by step, and the right trigger gives the story guide. " ..
 	"Without the trigger: pressing in the left stick gives everyone's HP and MP, pressing in the right stick gives your gold."
 
 -- the nearby list on the keyboard: Page Up / Page Down go through the things in a category,
@@ -9956,6 +10526,7 @@ while true do
 		PT("handle_keys") handle_keys()
 		pcall(watch_tricks, pad)
 		PT("walk_step") walk_step(controller_pressed)
+		PT("learn_walls") pcall(learn_walls_tick)
 		walk_resume_step()
 		pcall(through_step)
 		PT("route_step") route_step()

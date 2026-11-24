@@ -17,7 +17,7 @@ ROM with its BUILD.bat or its installer (github.com/sackchief/dqix-enhanced). Th
    it is), adds the mod to it, builds the game again (a few minutes) and puts the mod in its
    own folder, "DQ9 access" in your Documents. Your save and settings are not touched.
 3. Run Dragon Quest IX as usual (your shortcut, or dqix.exe in the game folder). After a moment
-   you hear "Dragon Quest 9 access 0.55 for the PC version is running. Press K for keys."
+   you hear "Dragon Quest 9 access 0.56 for the PC version is running. Press K for keys."
 
 You can run "Install DQ9 Access.bat" again at any time (there is a copy in the DQ9 access
 folder): for example after updating the PC version itself, which builds the game again
@@ -122,7 +122,7 @@ Hold the left trigger (LT), then:
                                  the beacon.
   Top face button (Y)            The route to the thing you picked, step by step (while the
                                  beacon is on: how far there is to go and the next turns).
-  Back (Select / View)           The story guide, as Y on the keyboard.
+  Right trigger (RT)             The story guide, as Y on the keyboard (Back does it too).
 
 
 THE GAME'S OWN KEYS
@@ -714,8 +714,8 @@ need to run the installer again.
 - Auto walk squeezes along narrower ledges further off (the path round the second floor of the
   Heights of Loneliness is barely wider than you).
 
-CHANGES SINCE 0.54
-------------------
+CHANGES IN 0.55
+---------------
 - Shops: equipment that changes a percentage (kung fu shoes' Evasion Chance) left out the
   people who can wear it. It now says "Jezza, Evasion Chance up 2.5%, 0.5% to 3%".
 - Shops, "How many?": the list of how many each person holds no longer mixes in the equipment
@@ -753,3 +753,100 @@ CHANGES SINCE 0.54
 - The Quester's Rest door's "Visit which room?" list was silent. It now reads each room as you
   move ("Royal Suite, 1 of 24"); up and down move through a page of six, left and right turn
   the page.
+
+CHANGES IN 0.56
+---------------
+- Auto walk sets off at once: while a long route is still being worked out (a second or so in a
+  big town such as Bloomingdale) it makes a start toward the place when the way straight on is
+  open, instead of standing still, and routes are worked out about twice as fast.
+- Auto walk steers round people standing in the way. In Bloomingdale, with a crowd at the foot
+  of the steps up to Marion's gate, it kept walking into the man beside the steps and gave up
+  ("Stuck"); it now goes round him.
+- Bloomingdale: the gate at the top of those steps was called "door to a small room"; it is now
+  "gate to Marion's yard".
+- Doors in a slanting row of houses (Bloomingdale's Terrace House): auto walk came at the door
+  along the row, ran into the house front beside it and said "it did not open". It now steps
+  round to the front of the door and walks straight in.
+- Going into a house by its door no longer says "Through ... In here: ..." with the things
+  outside; the game takes you in and the mod says where you are.
+- Wells: auto walk to a well stands you at its rim, facing it, and says "At the well. Press A to
+  climb down." (It used to try to walk into it, then round the far side.)
+- Starting or reloading the mod out in the street no longer says "Buy, 1 of 3" (the last shop's
+  menu, still in memory).
+- The Bad Cave walkthrough, on the story guide button: outside (which of the two entrances is
+  the way in), floor 1 (the kidnappers' chair and their ladder; floor 1 is in pieces joined
+  only through the caves below, so the steps follow the piece you are in), the caves under it,
+  B1, B2 and the boss, Tyrantula, and what to do afterwards. Its exits are named ("cave
+  entrance, left, the way in", "hole, east, down into the caves", "way on, west, down to B1")
+  and so are its floors ("The Bad Cave - B1").
+- The changes to auto walk listed above did not all reach the copy in your DQ9 access folder
+  the first time; they are all in it now (the gate to Marion's yard is named in the doors list).
+- The story guide and the dungeon walkthroughs are now on the left trigger and the right trigger
+  (hold LT, press RT), easier to find than Back. LT and Back still work.
+- The Bad Cave: the chair at the kidnappers' table only says "It's a rickety old chair" until you
+  have overheard the kidnappers, which happens at the east end of their ledge, above their door.
+  That spot is now in the objects list ("end of the ledge, above the kidnappers' door: walk here
+  to overhear the kidnappers") until you have been there, and the walkthrough says to go there
+  first.
+- Signs: auto walk to a sign ended on its back ("standing on the wrong side of it") when the game
+  marks the spot where it notices you on that side (the Bad Cave's sign by the bridge), or with
+  your back to it when the last step was a correction. It now goes round to the front, settles,
+  and keeps turning until you really face it.
+- The Bad Cave's overhearing spot dropped out of the objects list if you had walked under it, on
+  the floor by the kidnappers' door below the ledge, as if you had been there. It now only counts
+  once you have stood on the ledge itself.
+- The Bad Cave's kidnappers cannot be overheard, and their chair does nothing, until a step in
+  Bloomingdale is done: talk to the ghost on the ground floor of Marion's mansion (it only says
+  "......"), then examine the gravestone in the mansion's garden. The ghost is now called "ghost"
+  in the people list. The Bad Cave walkthrough (outside and on the ledge) checks this and, if it
+  is not done, says what is left; the overhearing spot in the objects list says "not yet" until
+  then. Bloomingdale's story guide step says the same.
+- The Bad Cave walkthrough also says to read the sign by the kidnappers' table before sitting in
+  the chair (the chair needs that too), and leaves out the steps you have already done.
+- The overhearing spot now counts as done only when the game says you have overheard the
+  kidnappers, not when you have stood there (standing there too early hid it).
+- Signs everywhere: auto walk now stands you where the game itself reads each sign from. The
+  game marks a box in front of its signs (and gravestones, plaques and inscriptions); stand
+  anywhere else and it says you are "standing on the wrong side of it". The mod now has those
+  boxes from the game's files (76 of them), and walks you to a clear spot well inside the box, a
+  step from the sign, then turns you to face it straight on (slanted if the sign stands at a
+  slant, as some of Bloomingdale's shop signs do). Before, it guessed from the camera, which
+  went wrong for signs that face sideways and in the open fields, where the camera turns.
+  For anything without such a box it still goes by the camera, but never to the wrong side.
+- Ladders and vines on the way are climbed for you more often:
+  - Picking the end of a ladder you are standing at (the bottom end, from the bottom) now climbs
+    it; it used to walk you to the foot of it and stop.
+  - Picking something you cannot walk to that the mod had not yet marked out of reach (just after
+    coming into a place, or in a big field still being worked out) now goes by the ladders when
+    they lead there, instead of setting off on foot and getting stuck.
+  - The Bad Cave walkthrough now says to pick the hole once the kidnappers' ladder is down: auto
+    walk climbs down it on the way.
+- Exits list: exits that all lead to the same place but each have their own name are now all
+  listed. In the caves under the Bad Cave's floor 1, all four ways out go up to floor 1, so only
+  the nearest was listed ("nearest of 4"), and the two at the west end the walkthrough talks
+  about could not be picked. Exits with the same name are still grouped as before.
+- Something the mod thinks you cannot walk to, at your own height and not far away: auto walk
+  now heads straight for it, feeling its way along walls, instead of saying "There is no way
+  to ... from here". The mod's map of the walls is sometimes wrong: at the foot of the
+  kidnappers' ladder in the Bad Cave it showed walls all round, though you can walk straight
+  east to the hole. It says first that the map shows no way, and gives up after about 40
+  seconds if it really cannot get there.
+- Chasing monsters that run away (metal medleys, metal slimes): auto walk now heads for where
+  the monster is going, from how it has been moving, so it cuts it off instead of trailing
+  behind it, and keeps after it in a straight line while nothing is in the way, instead of
+  stopping to work out a route every time it gets no closer.
+- The Bad Cave walkthrough said to examine Marion's doll after the fight, in the boss's lair.
+  The scene there plays by itself; the doll is then back in Bloomingdale, by the grave in
+  Marion's garden, and examining it gives the fygg. Once Tyrantula is beaten, the walkthrough
+  (anywhere in the Bad Cave) and the story guide now say so, and the doll is called "Marion's
+  doll, by the grave" in the people list (it was called Marion).
+- The mod's map of the walls is sometimes wrong: it has walls the game lets you walk straight
+  through (the Bad Cave's floor 1, round the foot of the kidnappers' ladder). Now, whenever you
+  walk through one of those, by yourself or by auto walk, the mod forgets that wall and writes
+  it down in dq9-access-walls.txt in the DQ9 access folder, so from then on the lists stop
+  saying "no way there from here" and auto walk plans its route through. Walking up or down a
+  ladder never counts.
+- Walls of a ledge above you that start just over your head no longer count as being in your
+  way (in the Bad Cave they made some places down below look shut in).
+- The Bad Cave walkthrough on the ledge says to climb down the kidnappers' ladder first and then
+  pick the hole, which auto walk heads straight for.
