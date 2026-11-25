@@ -1181,6 +1181,13 @@ local function read_menu()
 	if not same_menu then
 		transfer_mode = title == "To who?" and (last_menu_item == "Transfer" or (transfer_mode and menu_title == "To who?")) or nil
 	end
+	-- A Yes / No list's markup cursor stays on Yes after the box has moved (Quick Save's
+	-- question): while the box is up, the yes / no reader says the moves, not this reader too.
+	if same_menu and yesno_menu_box_up and count == 2 and items[0] and items[0].text == "Yes"
+		and items[1] and items[1].text == "No" then
+		menu_sig, menu_cursor = sig, cursor
+		return
+	end
 	menu_sig, menu_cursor, menu_items, menu_title = sig, cursor, items, title
 	local text = describe_item(it, cursor, count, items)
 	-- a spell out in the world: what it costs, from the game's "MP Required" window
@@ -1366,6 +1373,8 @@ end
 -- whose count and cursor sit at fixed places.
 EVENT_CHOICE_COUNT, EVENT_CHOICE_CURSOR = 0x021153A4, 0x021153C0
 local yesno_question = nil
+-- (globals: the main chunk is at Lua's limit of 200 locals)
+yesno_menu_box_up, yesno_menu_open_frame = false, -1000
 local function read_yesno()
 	-- a Yes / No list in the menu buffer is read by the menu reader (with its cursor): saying it
 	-- here as well gave "Yes or no? No" next to "Yes, 1 of 2"
@@ -1403,13 +1412,24 @@ local function read_yesno()
 	elseif not visible then
 		yesno_question = nil
 	end
+	if visible and not yesno_visible then yesno_menu_open_frame = frame end
 	-- (the box the menu's Yes / No used stays marked as showing for a while after it closes: that
 	-- is not a new question either)
 	if menu_yesno or frame - (yesno_menu_frame or -1000) < 120 then
 		if visible then yesno_seen_frame = frame end
+		-- The menu reader says the question's first answer, but the markup's cursor does not
+		-- follow the box (Quick Save), so the moves are said here. The player's answer byte
+		-- follows the box while it is up; it can still hold the last question's answer when the
+		-- box opens, so only a change after a button press since then is a move.
+		if menu_yesno and visible and yesno_visible and choice ~= yesno_choice
+			and (USER_INPUT_FRAME or -1000) > yesno_menu_open_frame then
+			say(choice == 1 and "No" or "Yes", true)
+		end
+		yesno_menu_box_up = menu_yesno and visible
 		yesno_visible, yesno_choice = visible, choice
 		return
 	end
+	yesno_menu_box_up = false
 	if visible then
 		local word = choice == 1 and "No" or "Yes"
 		if not yesno_visible then
