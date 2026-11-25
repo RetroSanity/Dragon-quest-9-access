@@ -24,7 +24,10 @@
 #define SND_RATE 44100
 #define SND_SOURCES 8
 
+#define ALC_CONNECTED 0x313
 typedef void* (*p_alcOpenDevice)(const char*);
+typedef char (*p_alcCloseDevice)(void*);
+typedef void (*p_alcDestroyContext)(void*);
 typedef void* (*p_alcCreateContext)(void*, const int*);
 typedef char (*p_alcMakeContextCurrent)(void*);
 typedef void (*p_alcGetIntegerv)(void*, int, int, int*);
@@ -39,6 +42,11 @@ typedef void (*p_alSourceStop)(unsigned);
 
 static struct {
     int tried, ok, hrtf;
+    void* dev; void* ctx;
+    p_alcCloseDevice CloseDevice; p_alcDestroyContext DestroyContext;
+    p_alcMakeContextCurrent MakeCurrent; p_alcGetIntegerv GetIntegerv;
+    wchar_t defid[300];                 /* Windows' default output when the sound was opened */
+    unsigned long long checked, failed; /* when the output was last checked; when opening it failed */
     p_alGenBuffers GenBuffers; p_alBufferData BufferData; p_alGenSources GenSources;
     p_alSourcei Sourcei; p_alSourcef Sourcef; p_alSource3f Source3f;
     p_alSourcePlay SourcePlay; p_alSourceStop SourceStop;
@@ -115,6 +123,90 @@ static void* snd_sym(void* lib, const char* name) {
     (void)lib; (void)name; return NULL;
 #endif
 }
+#ifdef _WIN32
+/* Windows' default sound output, by its id (Core Audio, through ole32 loaded here). Sound goes to
+ * the output that was the default when it was opened; when you switch to other headphones or
+ * speakers, or unplug them, it is opened again on the new default. */
+typedef struct snd_IMMDevice snd_IMMDevice;
+typedef struct {
+    void* QueryInterface; ULONG (STDMETHODCALLTYPE* AddRef)(void*); ULONG (STDMETHODCALLTYPE* Release)(void*);
+    void* Activate; void* OpenPropertyStore; HRESULT (STDMETHODCALLTYPE* GetId)(void*, wchar_t**); void* GetState;
+} snd_IMMDeviceVtbl;
+struct snd_IMMDevice { snd_IMMDeviceVtbl* v; };
+typedef struct {
+    void* QueryInterface; ULONG (STDMETHODCALLTYPE* AddRef)(void*); ULONG (STDMETHODCALLTYPE* Release)(void*);
+    void* EnumAudioEndpoints; HRESULT (STDMETHODCALLTYPE* GetDefaultAudioEndpoint)(void*, int, int, snd_IMMDevice**);
+} snd_IEnumVtbl;
+typedef struct { snd_IEnumVtbl* v; } snd_IEnum;
+static int snd_default_id(wchar_t* out, int n) {
+    static int loaded = 0;
+    static HRESULT (WINAPI* CoInit)(void*, DWORD);
+    static HRESULT (WINAPI* CoCreate)(const GUID*, void*, DWORD, const GUID*, void**);
+    static void (WINAPI* CoFree)(void*);
+    static snd_IEnum* en = NULL;
+    static const GUID clsid = { 0xBCDE0395, 0xE52F, 0x467C, { 0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E } };
+    static const GUID iid = { 0xA95664D2, 0x9614, 0x4F35, { 0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6 } };
+    out[0] = 0;
+    if (!loaded) {
+        loaded = 1;
+        HMODULE ole = LoadLibraryA("ole32.dll");
+        if (!ole) return 0;
+        CoInit = (HRESULT (WINAPI*)(void*, DWORD))(void*)GetProcAddress(ole, "CoInitializeEx");
+        CoCreate = (HRESULT (WINAPI*)(const GUID*, void*, DWORD, const GUID*, void**))(void*)GetProcAddress(ole, "CoCreateInstance");
+        CoFree = (void (WINAPI*)(void*))(void*)GetProcAddress(ole, "CoTaskMemFree");
+        if (!CoInit || !CoCreate || !CoFree) return 0;
+        CoInit(NULL, 0 /* COINIT_MULTITHREADED */);
+        if (FAILED(CoCreate(&clsid, NULL, 1 /* CLSCTX_INPROC_SERVER */, &iid, (void**)&en))) en = NULL;
+    }
+    if (!en) return 0;
+    snd_IMMDevice* d = NULL;
+    if (FAILED(en->v->GetDefaultAudioEndpoint(en, 0 /* eRender */, 0 /* eConsole */, &d)) || !d) return 0;
+    wchar_t* id = NULL;
+    int ok = 0;
+    if (SUCCEEDED(d->v->GetId(d, &id)) && id) {
+        wcsncpy(out, id, n - 1);
+        out[n - 1] = 0;
+        CoFree(id);
+        ok = 1;
+    }
+    d->v->Release(d);
+    return ok;
+}
+#endif
+static void snd_close(void) {
+    if (S.ok || S.ctx || S.dev) {
+        if (S.MakeCurrent) S.MakeCurrent(NULL);
+        if (S.ctx && S.DestroyContext) S.DestroyContext(S.ctx);
+        if (S.dev && S.CloseDevice) S.CloseDevice(S.dev);
+    }
+    S.ctx = S.dev = NULL;
+    S.ok = 0;
+    S.tried = 0;
+    S.next = 0;
+}
+static void snd_init(void);
+/* now and then (every second and a half, when a sound is wanted): still on the output Windows
+ * uses? If it was unplugged or another one became the default, open the sound again there. */
+static void snd_watch(void) {
+#ifdef _WIN32
+    unsigned long long now = GetTickCount64();
+    if (now - S.checked < 1500) return;
+    S.checked = now;
+    if (S.ok) {
+        int c = 1;
+        if (S.GetIntegerv) S.GetIntegerv(S.dev, ALC_CONNECTED, 1, &c);
+        wchar_t cur[300];
+        int changed = snd_default_id(cur, 300) && S.defid[0] && wcscmp(cur, S.defid) != 0;
+        if (!c || changed) {
+            fprintf(stderr, "access: sound output %s, opening the sound again\n", c ? "changed" : "lost");
+            snd_close();
+        }
+    } else if (S.tried && S.failed && now - S.failed > 5000) {
+        /* (no output when it was opened: try again) */
+        snd_close();
+    }
+#endif
+}
 static void snd_init(void) {
     if (S.tried) return;
     S.tried = 1;
@@ -137,11 +229,19 @@ static void snd_init(void) {
     S.SourceStop = (p_alSourceStop)snd_sym(lib, "alSourceStop");
     if (!OpenDevice || !CreateContext || !MakeCurrent || !S.GenBuffers || !S.BufferData || !S.GenSources ||
         !S.Sourcei || !S.Sourcef || !S.Source3f || !S.SourcePlay || !S.SourceStop) return;
+    S.CloseDevice = (p_alcCloseDevice)snd_sym(lib, "alcCloseDevice");
+    S.DestroyContext = (p_alcDestroyContext)snd_sym(lib, "alcDestroyContext");
+    S.MakeCurrent = MakeCurrent;
+    S.GetIntegerv = GetIntegerv;
+    snd_default_id(S.defid, 300);
     void* dev = OpenDevice(NULL);
-    if (!dev) { fprintf(stderr, "access: no 3D sound (no sound device)\n"); return; }
+    if (!dev) { fprintf(stderr, "access: no 3D sound (no sound device)\n"); S.failed = GetTickCount64(); return; }
+    S.dev = dev;
     int attrs[3] = { ALC_HRTF_SOFT, 1, 0 };
     void* ctx = CreateContext(dev, attrs);
-    if (!ctx || !MakeCurrent(ctx)) return;
+    if (!ctx || !MakeCurrent(ctx)) { S.failed = GetTickCount64(); return; }
+    S.ctx = ctx;
+    S.failed = 0;
     int st = 0;
     if (GetIntegerv) GetIntegerv(dev, ALC_HRTF_STATUS_SOFT, 1, &st);
     S.hrtf = (st == 1 || st == 3 || st == 4);
@@ -161,12 +261,14 @@ static void snd_init(void) {
 #endif
 }
 static int snd_ready(lua_State* l) {
+    snd_watch();
     snd_init();
     lua_pushboolean(l, S.ok);
     lua_pushboolean(l, S.hrtf);
     return 2;
 }
 static int snd_play(lua_State* l) {
+    snd_watch();
     snd_init();
     if (!S.ok) { lua_pushboolean(l, 0); return 1; }
     const char* name = luaL_checkstring(l, 1);

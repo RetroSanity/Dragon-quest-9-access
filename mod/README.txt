@@ -17,7 +17,7 @@ ROM with its BUILD.bat or its installer (github.com/sackchief/dqix-enhanced). Th
    it is), adds the mod to it, builds the game again (a few minutes) and puts the mod in its
    own folder, "DQ9 access" in your Documents. Your save and settings are not touched.
 3. Run Dragon Quest IX as usual (your shortcut, or dqix.exe in the game folder). After a moment
-   you hear "Dragon Quest 9 access 0.56 for the PC version is running. Press K for keys."
+   you hear "Dragon Quest 9 access 0.57 for the PC version is running. Press K for keys."
 
 You can run "Install DQ9 Access.bat" again at any time (there is a copy in the DQ9 access
 folder): for example after updating the PC version itself, which builds the game again
@@ -52,6 +52,9 @@ dq9-access-places.txt  Your marks, the names of people you have talked to, place
 dq9-access-log.txt     Snapshots saved with the C key, for reporting problems.
 dq9-access-speech.txt  Only if you make an empty file called dq9-access-debug.txt in the mod's
                        folder: everything the mod says.
+dq9-access-walls.txt   Walls of the map files that you have walked straight through, which the
+                       mod no longer counts.
+dq9-access-ship.txt    Where you left the ship.
 
 The game is in the game folder of your copy of the PC version (for example
 Documents\DQIX-Enhanced\game): dqix.exe and dqixcore.dll are the game with the Access mod's
@@ -850,3 +853,60 @@ CHANGES IN 0.56
   way (in the Bad Cave they made some places down below look shut in).
 - The Bad Cave walkthrough on the ledge says to climb down the kidnappers' ladder first and then
   pick the hole, which auto walk heads straight for.
+
+CHANGES IN 0.57
+---------------
+- Locked doors and gates inside a place: auto walk no longer tries to go through them. In the
+  ship's hold, the barred gate to the room with two chests is locked (it opens with the Ultimate
+  Key), and walking to the stairs from beside it went straight into it, so the game kept saying
+  "The door is locked" and the walk stopped. The mod was missing the game's rules for that gate
+  and for one other door in a dungeon; it has them now. A door the game says is locked when you
+  walk into it is also counted as locked from then on, even where the mod has no rules for it.
+- Something you cannot get to because it is behind a locked door now says so: "There is no way
+  to treasure chest from here. It is behind a locked door, right next to you. The door opens with
+  the Ultimate Key." Auto walk does not try heading straight for it.
+- At sea: the exits list now has the towns and other places of the world (Bloomingdale, Hope
+  Springs, Dourbridge, Gleeba and the rest, the ones the world map shows), nearest first, with
+  the way to each. Pick one and auto walk sails there: straight for the nearest bit of coast by
+  it where the ship can land, feeling its way along any land in between, and stops at that
+  coast, saying where the place is from there. Sail on into the land to go ashore. The places
+  come from the game's own world map data, the coasts you can land on from the ocean map.
+- Sailing keeps clear of the other coasts you can land on: touching one asks "Disembark?" and
+  stopped the sailing short (on the way to Gleeba you could end up ashore on the Slurry Coast).
+  It now plans a route round the land and round those coasts, to the one by the place you
+  picked. It says "Sailing to" at sea instead of "Walking to".
+- Sailing goes right up to the coast by the place: it sails to just off it, on the water side,
+  then straight into it until the game asks "Disembark?". It used to stop a few steps short and
+  leave you to find the coast yourself.
+- Vehicles: a new list. When you have gone ashore from the ship, the ship is in it, at the dock
+  where you left it: pick it and auto walk takes you to the shore beside it, facing the ship,
+  ready to press A to go aboard. The mod remembers where you left the ship, in dq9-access-ship.txt.
+- The mod's sounds (the auto walk beep, the beacon, the bump) follow your sound output: when you
+  switch to other headphones or speakers, or unplug them, they move to the new default output
+  within a couple of seconds. Before, they stayed on the output that was in use when the game
+  started, so after a switch you heard nothing from the mod until you restarted the game. This
+  is a change to the game's part of the mod: close the game and run Install DQ9 Access.bat again.
+- Gleeba: the exit to the Djust Desert, at the bottom of the long slope south of the square, was
+  called "no way there from here", so auto walk would not go. Its box sits far below where you
+  start, and the mod took that for another level; an exit you can walk right up to now counts
+  as reachable however low or high its box is.
+- Shops, "How many?": the number and the price were sometimes not read at all, nor when you
+  changed them (Gleeba's weapon shop). Once you pick something, the game draws the item's
+  details on the top screen last, and the mod looked for the How many? window only there; it
+  now looks in the list's layout too.
+- The ship, when it is not where you are: the Vehicles list says where it is docked ("ship, not
+  here: it is docked in Western Wormwood"), named after the place where you went ashore, and
+  picking it says where to go back to.
+- The ship after a Zoom or a chimaera wing: it follows you, to the dock nearest where you
+  arrive, out in the fields by the town (Zoom to Bloomingdale and it waits on the shore just
+  south-west of the town gate, not at the town's jetty). The mod now finds the ship itself on
+  the map, so wherever it has moved to, the Vehicles list has it as "ship" with its directions,
+  and in a town it says to go out into the fields. Auto walk takes you to the shore beside it,
+  up against its side, and says "Press A to go aboard". Before, it said the ship was at
+  Bloomingdale's jetty, where it is not.
+- At sea, places no ship can reach are listed as "not by ship", and picking one says why
+  instead of sailing you to the nearest coast you can land on (Eastern Coffinwell's), where the
+  game asked to go ashore somewhere else. The Tower of Nod: only the Starflight Express goes
+  there, once the main story is finished. The Gortress and Gittingham Palace: the Gittish
+  Empire has no coast to land on; the story takes you there later, and after that the
+  Starflight Express flies there.

@@ -48,7 +48,7 @@
 -- Anything read from memory is checked before it is spoken; a check that fails stays silent.
 
 ------------------------------------------------------------------------------ settings ------
-MOD_VERSION = "0.56"
+MOD_VERSION = "0.57"
 MENU_DEBUG = false   -- true: log the menu buffer and look for the yes/no box in snapshots
 WALK_DEBUG = false   -- true: log auto walk's route and position (in the speech log)
 -- (what the mod last pressed for you, for that log)
@@ -200,6 +200,10 @@ end
 DLG_SPOKEN_FRAME, USER_INPUT_FRAME, LAST_SAY_FRAME, SKILL_UI_FRAME = -1000, -1000, -1000, -1000
 local function say(text, interrupt)
 	if not text or text == "" then return end
+	-- (Zoom or a chimaera wing: the ship moves with you, to the water by where you arrive)
+	if SHIP_ZOOMED and (text:find("casts Zoom", 1, true) or text:lower():find("chimaera wing", 1, true)) then pcall(SHIP_ZOOMED) end
+	-- (at sea the auto walk sails)
+	if SAILING_NOW and SAILING_NOW() then text = text:gsub("^Walking to", "Sailing to"):gsub("^Walking onto", "Sailing onto") end
 	-- (the same words twice in a moment with no button pressed in between: a question read from
 	-- the message box and again from its window, as at Porth Llaffan's church)
 	if text == LAST_SAY_TEXT and frame - LAST_SAY_FRAME < 90 and USER_INPUT_FRAME < LAST_SAY_FRAME then return end
@@ -4669,6 +4673,8 @@ local function build_nearby()
 			list[#list + 1] = { label = lb .. (e.not_yet and (", " .. e.not_yet) or ""), x = e.x, z = e.z, fy = e.fy, story_spot = true }
 		end
 	end
+	for _, sp in ipairs(sea_places()) do list[#list + 1] = sp end
+	for _, v in ipairs(vehicles()) do list[#list + 1] = v end
 	-- People with the same name get a number each ("old man 1", "old man 2"), always the same one
 	-- for the same person while you are here (counted in the game's own order of people)
 	do
@@ -4739,11 +4745,12 @@ local function announce_selected()
 	local how = ", no way there from here"
 	if it.unreachable and item_note(it) then how = ", " .. item_note(it)
 	elseif it.unreachable and (it.item or it.kind == 0) and ladder_route_known(it) then how = ", by ladders" end
+	if it.elsewhere then say(it.label .. ". " .. selected .. " of " .. #nearby) return end
 	say(it.label .. ", " .. directions_to(it.x, it.z) .. (it.unreachable and ((it.level and ", " .. it.level or "") .. how) or "") .. ". " .. selected .. " of " .. #nearby)
 end
 
 -- Categories for the nearby list: N and B (or the controller) only go through the chosen one.
-CATEGORIES = { "People", "Monsters", "Items", "Sparkly spots", "Doors", "Exits", "Objects", "Marks" }   -- (Events taken out: not useful)
+CATEGORIES = { "People", "Monsters", "Items", "Sparkly spots", "Doors", "Exits", "Vehicles", "Objects", "Marks" }   -- (Events taken out: not useful)
 -- these are always offered, even when there are none here, so you know they exist
 ALWAYS_SHOWN = { ["Monsters"] = true, ["Sparkly spots"] = true }
 local category = 1
@@ -4785,7 +4792,258 @@ function through_summary(door, px, pz, sx, sz)
 	end
 	return "In here: " .. table.concat(names, ", ") .. "."
 end
+-- Towns (2) and other places (1) as the world map shows them, where they are on the ocean you sail
+-- (the game's data/map/w_offset.bin): { map, kind, x, z, name }
+WORLD_PLACES = {
+	{ 100, 2, -60.06, -24.23, "Stornway" },
+	{ 200, 2, 51.31, 0.83, "Gleeba" },
+	{ 400, 1, 5.91, -59.71, "Gittingham Palace", no_sail = "the ship cannot take you there: the Gittish Empire has no coast to land on. The story takes you there later, and after that the Starflight Express flies there" },
+	{ 1100, 2, -100.19, -26.04, "Angel Falls" },
+	{ 1200, 2, -75.21, -51.71, "Zere" },
+	{ 1300, 2, -39.54, -51.72, "Coffinwell" },
+	{ 1500, 2, -0.52, 15.94, "Porth Llaffan" },
+	{ 1700, 2, 49.49, 32.65, "Zere Rocks" },
+	{ 1800, 2, 29.95, 29.95, "Dourbridge" },
+	{ 1900, 2, 28.12, 56.21, "Bloomingdale" },
+	{ 2000, 2, 47.95, -35.28, "Batsureg" },
+	{ 2100, 2, 96.22, -25.50, "Swinedimples Academy" },
+	{ 2200, 2, -42.20, 14.21, "Wormwood Creek" },
+	{ 2300, 2, -70.28, 31.86, "Upover" },
+	{ 4200, 2, -2.88, -4.42, "Alltrades Abbey" },
+	{ 7100, 1, -79.23, -18.77, "The Hexagon" },
+	{ 7301, 1, -95.97, -71.85, "Brigadoom" },
+	{ 7400, 1, -59.39, -67.09, "Quarantomb" },
+	{ 7601, 1, -13.59, 13.48, "Tywll Cave" },
+	{ 7700, 1, 48.92, 38.86, "Heights of Loneliness" },
+	{ 7900, 1, 32.74, 47.47, "The Bad Cave" },
+	{ 8201, 1, 63.62, -52.60, "Gerzuun" },
+	{ 8400, 1, -95.49, -6.37, "The Bowhole" },
+	{ 9000, 1, 13.23, -2.40, "Tower of Trades" },
+	{ 9100, 1, -42.58, -65.11, "Tower of Nod", no_sail = "the ship cannot take you there. Only the Starflight Express goes there, once the main story is finished" },
+	{ 5101, 2, -72.04, -30.83, "Mountain Pass" },
+	{ 5200, 2, -58.08, -39.87, "Loch Storn" },
+	{ 5300, 2, -46.87, -30.46, "Eastern Checkpoint" },
+	{ 5400, 2, -66.11, -15.48, "Hexagon Hill" },
+	{ 5600, 2, 45.50, -47.27, "Hunters' Yurts" },
+	{ 5700, 2, -7.76, -59.80, "Gortress", no_sail = "the ship cannot take you there: the Gittish Empire has no coast to land on. The story takes you there later, and after that the Starflight Express flies there" },
+	{ 5800, 2, 19.19, 24.26, "Slurry Quay" },
+	{ 6000, 2, 50.90, 40.82, "Mountain Hut" },
+	{ 6100, 2, 29.67, -41.06, "Ulbaruun Cave" },
+	{ 6200, 2, 16.48, 60.96, "Hope Springs" },
+	{ 6500, 2, -57.02, 18.31, "Wyrmward" },
+}
+-- at sea (the ocean map, 10000): the towns and other places, in the exits list, with the way to
+-- them. Coasts you can land on are walls of the ocean map with a landing number (byte 24 of the
+-- wall; 54 is a coast with nowhere to land).
+function sea_places()
+	local out = {}
+	if u16(MAPID) ~= 10000 then return out end
+	for _, p in ipairs(WORLD_PLACES) do
+		out[#out + 1] = { label = p.no_sail and (p[5] .. ", not by ship") or p[5], name = p[5], x = p[3], z = p[4], sea = true, sea_kind = p[2], no_sail = p.no_sail }
+	end
+	return out
+end
+-- the nearest bit of coast you can land on, by a place: where to sail to
+function sea_landing(x, z)
+	local n = nav_ready()
+	if not n then return nil end
+	for _, r in ipairs({ 14, 30 }) do
+		local best, bd = nil, r * r
+		for _, w in ipairs(n.walls or {}) do
+			if w.land and w.land ~= 54 then
+				local mx, mz = (w[1] + w[3]) / 2, (w[2] + w[4]) / 2
+				local dd = (mx - x) ^ 2 + (mz - z) ^ 2
+				if dd < bd then best, bd = { mx, mz, w.land, w }, dd end
+			end
+		end
+		if best then return best end
+	end
+	return nil
+end
+function SAILING_NOW() return u16(MAPID) == 10000 end
+-- how many times a straight line crosses the coasts of the ocean map (each wall once, though the
+-- map has two triangles for each bit of wall)
+function sea_crossings(ax, az, bx, bz)
+	local n = nav_ready()
+	if not n then return 0 end
+	local function side(px, pz, qx, qz, rx, rz) return (qx - px) * (rz - pz) - (qz - pz) * (rx - px) end
+	local seen, c = {}, 0
+	for _, w in ipairs(n.walls or {}) do
+		if side(ax, az, bx, bz, w[1], w[2]) * side(ax, az, bx, bz, w[3], w[4]) < 0
+			and side(w[1], w[2], w[3], w[4], ax, az) * side(w[1], w[2], w[3], w[4], bx, bz) < 0 then
+			local x1, z1, x2, z2 = w[1], w[2], w[3], w[4]
+			if x1 > x2 or (x1 == x2 and z1 > z2) then x1, z1, x2, z2 = x2, z2, x1, z1 end
+			local k = string.format("%.1f %.1f %.1f %.1f", x1, z1, x2, z2)
+			if not seen[k] then seen[k] = true c = c + 1 end
+		end
+	end
+	return c
+end
+-- sailing somewhere: the other coasts you can land on are kept clear of (touching one asks
+-- "Disembark?" and stops the sailing), all but the one by the place you are going to
+SEA_LAND_TARGET = nil
+function sea_avoid(px, pz)
+	local out = {}
+	local n = nav_ready()
+	if not n or u16(MAPID) ~= 10000 then return out end
+	for _, w in ipairs(n.walls or {}) do
+		if w.land and w.land ~= 54 and w.land ~= SEA_LAND_TARGET then
+			local b = { x0 = math.min(w[1], w[3]) - 1.2, x1 = math.max(w[1], w[3]) + 1.2,
+			            z0 = math.min(w[2], w[4]) - 1.2, z1 = math.max(w[2], w[4]) + 1.2, pad = 0 }
+			-- (not one you are in already: just setting off from it)
+			if not (px > b.x0 and px < b.x1 and pz > b.z0 and pz < b.z1) then out[#out + 1] = b end
+		end
+	end
+	return out
+end
+-- Where the ship is: the game puts it at the dock (a kind 10 marker of the map) by where you
+-- went ashore. Kept in dq9-access-ship.txt: the map, and where you stepped off.
+SHIP_FILE = DIR .. "dq9-access-ship.txt"
+SHIP = nil
+do
+	local f = io.open(SHIP_FILE, "r")
+	if f then
+		local m, x, z, nm = (f:read("l") or ""):match("^(%d+) ([%-%d%.]+) ([%-%d%.]+) ?(.*)$")
+		if m then
+			local zoomed = nm:match("^zoomed ?") ~= nil
+			nm = nm:gsub("^zoomed ?", "")
+			SHIP = { map = tonumber(m), x = tonumber(x), z = tonumber(z), name = (nm ~= "" and nm or nil), zoomed = zoomed }
+		end
+		f:close()
+	end
+end
+function ship_save()
+	if not SHIP then return end
+	local f = io.open(SHIP_FILE, "w")
+	if f then f:write(string.format("%d %.2f %.2f %s%s\n", SHIP.map, SHIP.x, SHIP.z, SHIP.zoomed and "zoomed " or "", SHIP.name or "")) f:close() end
+end
+function SHIP_ZOOMED()
+	if SHIP and not SHIP.zoomed then SHIP.zoomed = true ship_save() end
+end
+SHIP_WATCH = { last = nil, pending = false }
+function ship_tick()
+	local id = u16(MAPID)
+	local W = SHIP_WATCH
+	if W.last and W.last ~= id then
+		-- (off the sea onto land, not into the ship's own rooms)
+		local code = map_code() or ""
+		if W.last == 10000 and not code:match("^S09") then W.pending = true end
+		if id == 10000 then W.pending = false end
+	end
+	W.last = id
+	if W.pending and not fading() and not in_battle() then
+		local x, _, z = player_pos()
+		if x then
+			W.pending = false
+			SHIP = { map = id, x = x, z = z, name = map_name() or (MAPIDS[id] and MAPIDS[id][2]) }
+			ship_save()
+		end
+	end
+end
+-- The ship itself, when it is on this map: the game keeps it as an object (type 0xc8, with 0xc9
+-- and 0x000a0106 at +0x74 and +0x78) with its place at +8. Docked by a field it is drawn at
+-- scale 0x180 and marked live (4 at +0x30); the one out at sea is smaller, and a stale copy
+-- left from an earlier map is not marked 4. Zoom and chimaera wings move it to the dock nearest
+-- where you arrive, so this is how to know where it really is.
+SHIP_OBJ = nil
+function ship_live()
+	local id = u16(MAPID)
+	if id < 20000 or id >= 30000 then return nil end
+	local function check(o)
+		if u32(o) ~= 0xc8 or u32(o + 0x74) ~= 0xc9 or u32(o + 0x78) ~= 0x000a0106 then return false end
+		if u16(o + 0x20) ~= 0x180 or u8(o + 0x30) ~= 4 then return false end
+		return true
+	end
+	if SHIP_OBJ and SHIP_OBJ.map == id and check(SHIP_OBJ.a) then
+		return s32(SHIP_OBJ.a + 8) / 4096, s32(SHIP_OBJ.a + 0x10) / 4096
+	end
+	-- (looked for at most every 2 seconds)
+	if SHIP_OBJ and SHIP_OBJ.map == id and SHIP_OBJ.none and frame - SHIP_OBJ.at < 120 then return nil end
+	SHIP_OBJ = { map = id, none = true, at = frame }
+	for _, a in ipairs(find_words(0x02200000, 0x200000, 0x000a0106, 64)) do
+		local o = a - 0x78
+		if check(o) then
+			SHIP_OBJ = { map = id, a = o }
+			return s32(o + 8) / 4096, s32(o + 0x10) / 4096
+		end
+	end
+	return nil
+end
+-- where to stand to board it: the nearest floor by it at about your own height
+function ship_shore(sx, sz)
+	local n = nav_ready()
+	local px, py, pz = player_pos()
+	if not n or not px then return sx, sz end
+	local R = (REACH_BIG.n == n) and REACH_BIG.R or nil
+	local best, bx, bz = 1e9, sx, sz
+	for r = 1, 12 do
+		local rr = r * 0.5
+		for k = 0, 23 do
+			local a = k * math.pi / 12
+			local x, z = sx + math.cos(a) * rr, sz + math.sin(a) * rr
+			local h = floor_near(n, x, z, py, 1.5)
+			if h and h > -0.5 and (not R or reach_near(R, x, z) < 0.6) then
+				-- (the nearer the ship the better; then the nearer you)
+				local d = rr * 10 + math.sqrt((x - px) ^ 2 + (z - pz) ^ 2) * 0.01
+				if d < best then best, bx, bz = d, x, z end
+			end
+		end
+		if best < 1e9 then break end
+	end
+	return bx, bz
+end
+-- the ship, when it is docked on this map: at the dock nearest where you stepped off
+function ship_where()
+	return SHIP and (SHIP.name and ("in " .. SHIP.name) or "where you last went ashore from it") or nil
+end
+function vehicles()
+	local out = {}
+	local id = u16(MAPID)
+	local code = map_code() or ""
+	if id == 10000 or code:match("^S09") then return out end
+	-- the ship seen on this map: where it really is (after a Zoom it has moved to the dock nearest
+	-- where you arrived)
+	local sx, sz = ship_live()
+	if sx then
+		if not SHIP or SHIP.map ~= id or SHIP.zoomed or math.abs(SHIP.x - sx) > 0.5 or math.abs(SHIP.z - sz) > 0.5 then
+			SHIP = { map = id, x = sx, z = sz, name = map_name() or (MAPIDS[id] and MAPIDS[id][2]) }
+			ship_save()
+		end
+		local wx, wz = ship_shore(sx, sz)
+		out[1] = { label = "ship", x = sx, z = sz, vehicle = true, wx = wx, wz = wz }
+		return out
+	end
+	if not SHIP then return out end
+	local px, _, pz = player_pos()
+	-- after a Zoom or a chimaera wing the ship follows you, to the dock nearest where you arrive
+	if SHIP.zoomed then
+		out[1] = { label = "ship, not on this map: it moved when you used Zoom or a chimaera wing, to the dock nearest where you arrived, in the fields outside the town", x = px or 0, z = pz or 0, vehicle = true, elsewhere = true }
+		return out
+	end
+	if SHIP.map ~= id then
+		-- (somewhere else: say where, so you know where to go back to)
+		out[1] = { label = "ship, not here: it is docked " .. ship_where() .. ", by the coast where you went ashore", x = px or 0, z = pz or 0, vehicle = true, elsewhere = true }
+		return out
+	end
+	local dx, dz, bd = nil, nil, 10
+	local base, n = u32(GIMMICK_PTR), u32(GIMMICK_COUNT)
+	if n > 0 and n <= 200 and inram(base, n * 0x74) then
+		for k = 0, n - 1 do
+			local g = base + k * 0x74
+			if u32(g + 4) == 10 then
+				local x, z = s32(g + 8) / 4096, s32(g + 0x10) / 4096
+				local dd = math.sqrt((x - SHIP.x) ^ 2 + (z - SHIP.z) ^ 2)
+				if dd < bd then dx, dz, bd = x, z, dd end
+			end
+		end
+	end
+	local wx, wz = ship_shore(SHIP.x, SHIP.z)
+	out[1] = { label = "ship", x = dx or SHIP.x, z = dz or SHIP.z, vehicle = true, wx = wx, wz = wz }
+	return out
+end
 local function category_of(it)
+	if it.vehicle then return "Vehicles" end
+	if it.sea then return "Exits" end
 	if it.monster then return "Monsters" end
 	if it.sparkle then return "Sparkly spots" end
 	-- (a ladder or vine to another floor is a way out of here)
@@ -4977,6 +5235,7 @@ function nav_build(name)
 				-- the kind of wall, from the low bits of its flags: 3 is furniture (counters, tables,
 				-- shelves) that the game lets you talk across; 0 and 6 are the building's walls
 				w.k = (raw:byte(t * 24 + 21) or 0) % 16
+				w.land = raw:byte(t * 24 + 24)
 				-- where each corner sits along the footprint (0..1) and its height, so the wall's
 				-- height at any point along it can be worked out (a slanted wall beside a ramp)
 				local ax, az = w[3] - w[1], w[4] - w[2]
@@ -5614,6 +5873,33 @@ local function dir_toward(dx, dz)
 end
 -- Doorways and exits a route keeps out of: all but the one you are going to and the one you are
 -- standing in (the planner knows their heights, so one on another level is no obstacle)
+-- a door inside the map that is locked now: by the game's rules for it, or because the game said
+-- so when you walked into it (LOCKED_SEEN, for this session)
+LOCKED_SEEN = {}
+function gdoor_key(d) return u16(MAPID) .. ":" .. math.floor(d.x * 4 + 0.5) .. ":" .. math.floor(d.z * 4 + 0.5) end
+function gdoor_locked(d)
+	if LOCKED_SEEN[gdoor_key(d)] then return true end
+	local ok, l = pcall(door_lock, u16(MAPID), door_gids_at(d.x, d.z, 0.6))
+	return ok and l or false
+end
+-- the game just said a door is locked: the one inside the map you are next to
+LOCK_SEEN_FRAME = -1000
+function learn_locked_tick()
+	if frame - LOCK_SEEN_FRAME < 90 or not door_locked_text() then return end
+	LOCK_SEEN_FRAME = frame
+	local px, _, pz = player_pos()
+	if not px then return end
+	local best, bd = nil, 1.6
+	for _, d in ipairs(town_doors()) do
+		local dd = math.sqrt((d.x - px) ^ 2 + (d.z - pz) ^ 2)
+		if dd < bd then best, bd = d, dd end
+	end
+	if best and not LOCKED_SEEN[gdoor_key(best)] then
+		LOCKED_SEEN[gdoor_key(best)] = true
+		REACH, REACH_SHUT = nil, nil
+		if REACH_BIG then REACH_BIG.n, REACH_BIG.R, REACH_BIG.co = nil, nil, nil end
+	end
+end
 function avoid_list(tx, tz, px, pz)
 	local py = select(2, player_pos())
 	local avoid = {}
@@ -5638,6 +5924,19 @@ function avoid_list(tx, tz, px, pz)
 			end
 		end
 	end
+	-- a locked door or gate inside the map (the ship's hold: the barred gate to the room with two
+	-- chests): the map's walls have a gap there, so keep out of the doorway itself, unless it is
+	-- where you are going
+	for _, d in ipairs(town_doors()) do
+		local mine = tx and math.abs(d.x - tx) < 0.3 and math.abs(d.z - tz) < 0.3
+		if not mine and gdoor_locked(d) then
+			local dd = math.sqrt((d.x - px) ^ 2 + (d.z - pz) ^ 2)
+			local r = math.min(0.55, math.max(0.15, dd - 0.1))
+			avoid[#avoid + 1] = { x0 = d.x - r, x1 = d.x + r, z0 = d.z - r, z1 = d.z + r,
+			                      y0 = d.fy and d.fy - 0.5, y1 = d.fy and d.fy + 2.0, pad = 0.05 }
+		end
+	end
+	for _, b in ipairs(sea_avoid(px, pz)) do avoid[#avoid + 1] = b end
 	-- on the way to something: the other chests, pots and barrels are in the way too (the map's
 	-- walls do not have them). A chest next to the one you want, in a row, was walked into.
 	if tx then
@@ -5935,6 +6234,8 @@ function reach_mark(list)
 		-- where you can walk; one across a river is out of reach)
 		if not it.mark then
 			local d = reach_near(R, it.x, it.z)
+			-- (the ship lies in the water: what matters is the shore by it)
+			if it.vehicle and it.wx then d = reach_near(R, it.wx, it.wz) end
 			-- (a big exit box, 15 steps wide out in a field: what matters is walking up to it, which
 			-- the flood notes when it is stopped at the box's edge; its middle can be far inside)
 			if d > 0.5 and it.kind == 0 and it.x0 and R.touched and R.touched[box_key(it)] then d = 0 end
@@ -5948,7 +6249,10 @@ function reach_mark(list)
 			-- mouth under the ledge outside Tywll Cave's upper floor, is on another level)
 			-- (not one the mod knows a stairway leads to, "stairs down to ...": the flood does not
 			-- follow every flight of steps down)
+			-- (nor one the flood walked right up to: Gleeba's way out to the Djust Desert is down a long
+			-- slope, its box far below the square you start from)
 			if not it.unreachable and it.kind == 0 and it.y0 and math.abs(it.y0 - py) > 4
+				and not (it.x0 and R.touched and R.touched[box_key(it)])
 				and not (it.label or ""):find("^stairs") and not (it.label or ""):find("cave mouth on the ledge")
 				and reach_near3(R, n, it.x, it.z, it.y0) == false then
 				it.unreachable = true
@@ -6006,8 +6310,21 @@ function ladder_route_known(it)
 	end
 	return LADDER_OK_CACHE[k]
 end
+-- a locked door inside the map close to something you cannot get to: it is most likely behind it
+function locked_door_by(it)
+	for _, d in ipairs(town_doors()) do
+		if (d.x - it.x) ^ 2 + (d.z - it.z) ^ 2 < 4.5 ^ 2 and gdoor_locked(d) then return d end
+	end
+	return nil
+end
 function unreachable_msg(it)
 	if not it.unreachable then return nil end
+	local ld = it.kind ~= 1 and locked_door_by(it)
+	if ld then
+		local _, _, key = pcall(door_lock, u16(MAPID), door_gids_at(ld.x, ld.z, 0.6))
+		return "There is no way to " .. it.label .. " from here. It is behind a locked door, " .. directions_to(ld.x, ld.z)
+			.. (type(key) == "number" and KEY_NAMES[key] and (". The door opens with " .. KEY_NAMES[key]) or "") .. "."
+	end
 	local note = item_note(it)
 	if note then return "There is no way to " .. it.label .. " from here. It is " .. note .. "." end
 	local code = map_code() or ""
@@ -6442,6 +6759,16 @@ end
 local function start_walk()
 	local it = sel_item
 	if not it then say("Pick something on the list first.") return end
+	if it.vehicle and it.elsewhere then
+		if SHIP and SHIP.zoomed then
+			say("The ship is not on this map. When you use Zoom or a chimaera wing it follows you, to the dock nearest where you arrive: go out into the fields by the town you came to, and it is in this list.", true)
+		else
+			say("The ship is not here. It is docked " .. ship_where() .. ", by the coast where you went ashore. Go back there and it is in this list.", true)
+		end
+		return
+	end
+	if it.via_exit then it = it.via_exit end
+	if it.sea and it.no_sail then say((it.name or it.label) .. ": " .. it.no_sail .. ".", true) return end
 	local px, _, pz = player_pos()
 	if not px then say("Cannot walk right now.") return end
 	if reach_mark and it.code == here_code() then reach_mark({ it }) end
@@ -6456,11 +6783,12 @@ local function start_walk()
 	-- (the Bad Cave's floor 1: walls round the foot of the kidnappers' ladder that you walk
 	-- straight through on the way to the hole), so head straight for it, feeling the way
 	local straight = nil
+	if it.sea or it.vehicle then it.unreachable = nil end
 	if it.unreachable then
 		local _, py0 = player_pos()
 		local ty = it.y0 or it.fy or gimmick_y_at(it.x, it.z)
 		local far = math.sqrt((it.x - px) ^ 2 + (it.z - pz) ^ 2)
-		if py0 and ty and math.abs(ty - py0) < 1.5 and far < 40 and not it.locked then straight = true
+		if py0 and ty and math.abs(ty - py0) < 1.5 and far < 40 and not it.locked and not locked_door_by(it) then straight = true
 		else say(unreachable_msg(it), true) return end
 	end
 	if BEACON then BEACON = nil end      -- an auto walk takes over from the beacon
@@ -6477,6 +6805,44 @@ local function start_walk()
 	         monster = it.monster or nil, boss = it.boss or nil, origin_map = u16(MAPID),
 	         doorlike = (it.kind == 1 and not it.nx) or nil, item = it }
 	walk_resume = nil
+	if it.sea then
+		-- (sailing: to the coast you can land on by the place, round the land and clear of the
+		-- other coasts you can land on)
+		local lp = sea_landing(it.x, it.z)
+		if lp then
+			-- (sail to just off that bit of coast, on the water side, then straight into it until
+			-- the game asks "Disembark?")
+			local w = lp[4]
+			local ex, ez = w[3] - w[1], w[4] - w[2]
+			local el = math.sqrt(ex * ex + ez * ez)
+			local nx, nz = 0, 0
+			if el > 0.01 then nx, nz = -ez / el, ex / el end
+			local c1x, c1z, c2x, c2z = lp[1] + nx * 1.5, lp[2] + nz * 1.5, lp[1] - nx * 1.5, lp[2] - nz * 1.5
+			-- (the water side: a line from the ship to it crosses the coast an even number of times)
+			local function water(x, z) return sea_crossings(px, pz, x, z) % 2 == 0 end
+			local d1, d2 = (c1x - px) ^ 2 + (c1z - pz) ^ 2, (c2x - px) ^ 2 + (c2z - pz) ^ 2
+			if (water(c1x, c1z) and not water(c2x, c2z)) or (water(c1x, c1z) == water(c2x, c2z) and d1 <= d2) then
+				walk.x, walk.z = c1x, c1z
+			else
+				walk.x, walk.z = c2x, c2z
+			end
+			walk.sea_shore = { lp[1], lp[2] }
+		end
+		SEA_LAND_TARGET = lp and lp[3] or nil
+		walk.sea = true
+		walk.things = sea_avoid(px, pz)
+	end
+	if it.vehicle then
+		-- (the ship is out in the water: walk to where you stepped off it, and face it)
+		walk.x, walk.z = it.wx, it.wz
+		walk.face = { it.x, it.z }
+		-- (then on up against its side, where the game offers to board with A)
+		walk.face_push = 45
+		walk.face_msg = function()
+			local sx, sz = it.x, it.z
+			return "At the ship, " .. directions_to(sx, sz) .. ". Press A to go aboard."
+		end
+	end
 	if straight then
 		walk.nopath, walk.max_flips = true, 1
 		walk.try_note = "The map shows no way there from here, so heading straight for it. "
@@ -7137,6 +7503,19 @@ local function walk_step(host_pressed)
 		end
 		if d > 0.05 then pcall(function() joypad.set(DIRS[dir_toward(dx, dz) + 1]) end) end
 		return
+	elseif walk.sea and walk.sea_shore and (d < 0.9 or walk.sea_push) then
+		-- just off the coast you can land on: straight into it, until the game asks "Disembark?"
+		-- (that question stops the sailing)
+		walk.sea_push = walk.sea_push or frame
+		if frame - walk.sea_push > 60 * 4 then
+			local it = walk.item
+			stop_walk("At the coast by " .. walk.label .. ", but it did not ask to go ashore. " .. walk.label .. " is " .. directions_to(it.x, it.z) .. ". Sail into the land yourself.") return
+		end
+		local sx, sz = walk.sea_shore[1] - px, walk.sea_shore[2] - pz
+		pcall(function() joypad.set(DIRS[dir_toward(sx, sz) + 1]) end)
+		return
+	elseif walk.sea and not walk.sea_shore and d < 3 then
+		stop_walk("Near " .. walk.label .. ". Sail into the land to go ashore.") return
 	elseif not walk.door and (d < (walk.obj and (walk.boss and 3.5 or 1.4) or (walk.face and 0.35 or 0.7))
 		-- (a boss is big: Lleviathan is talked to from a few steps away)
 		or (walk.boss and walk.obj and d < 5 and walk.fbest and frame - walk.fprog > 45)
@@ -7168,7 +7547,7 @@ local function walk_step(host_pressed)
 		end
 		if walk.face then
 			-- turn to face them across the counter
-			walk.face_end = walk.face_end or frame + 10
+			walk.face_end = walk.face_end or frame + 10 + (walk.face_push or 0)
 			local fx, fz = walk.face[1] - px, walk.face[2] - pz
 			-- (a chest or sign: straight at it, not on a slant)
 			local fd = (walk.square and not walk.face8) and cardinal_dir(fx, fz) or dir_toward(fx, fz)
@@ -7194,7 +7573,9 @@ local function walk_step(host_pressed)
 				pcall(function() joypad.set(DIRS[fd + 1]) end)
 				return
 			end
-			stop_walk(walk.face_msg or ("Arrived at " .. walk.label .. ", across the counter. Press A to talk.")) return
+			local fm = walk.face_msg
+			if type(fm) == "function" then local okf, m = pcall(fm) fm = okf and m or nil end
+			stop_walk(fm or ("Arrived at " .. walk.label .. ", across the counter. Press A to talk.")) return
 		end
 		stop_walk("Arrived at " .. walk.label .. ".") return
 	end
@@ -7943,9 +8324,12 @@ function qty_held(L, W, count, sel, skip)
 	return out
 end
 -- true while the window is open (the list under it is then left alone)
-function read_quantity(L, W, count, sel)
+function read_quantity(L, W, count, sel, keep)
 	local i = qty_find(L, W, count)
-	if not i or not window_open(L, qty.win) then qty.said, qty.pending = nil, nil return false end
+	if not i or not window_open(L, qty.win) then
+		if not keep then qty.said, qty.pending = nil, nil end
+		return false
+	end
 	local n, total = nil, nil
 	for j = i + 1, math.min(count - 1, i + 8) do
 		local v = qty_number(W, j)
@@ -8144,7 +8528,16 @@ local function read_layout()
 	if sel ~= 0xFFFF then lay_good, lay_good_frame = p, frame end
 	if count == 0 or count > 1000 or not inram(W, count * 0x30) then return end
 	pcall(watch_pot, L, W)
-	if read_quantity(L, W, count, sel) then return end
+	-- the How many? window: in this layout, or in the list's, when the layout drawn last is
+	-- the item's details on the top screen (as it is in a shop once you pick something to buy)
+	local q = read_quantity(L, W, count, sel, true)
+	if not q and lay_good and lay_good ~= p and inram(lay_good, 0x40) then
+		local g = lay_good - 4
+		local gW, gn = u32(g + 4), u16(g + 8)
+		if gn > 0 and gn < 1000 and inram(gW, gn * 0x30) then q = read_quantity(g, gW, gn, u16(g + 0x36), true) end
+	end
+	if q then return end
+	qty.said, qty.pending = nil, nil
 	-- the cursor holds a box's id (+4), which is usually, but not always, its place in the array
 	if sel >= count or u16(W + 0x30 * sel + 4) ~= sel then
 		local found = nil
@@ -10527,6 +10920,8 @@ while true do
 		pcall(watch_tricks, pad)
 		PT("walk_step") walk_step(controller_pressed)
 		PT("learn_walls") pcall(learn_walls_tick)
+		PT("learn_locked") pcall(learn_locked_tick)
+		PT("ship") pcall(ship_tick)
 		walk_resume_step()
 		pcall(through_step)
 		PT("route_step") route_step()
